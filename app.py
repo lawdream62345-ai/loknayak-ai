@@ -3,8 +3,6 @@
 #  Primary: Groq (Llama-3.3-70B) | Backup: Gemini Flash
 # ═══════════════════════════════════════════════════════════════════
 
-!pip install -q gradio requests google-genai PyPDF2 python-docx
-
 import gradio as gr
 import requests
 import time
