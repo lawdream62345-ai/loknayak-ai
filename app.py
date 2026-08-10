@@ -240,8 +240,7 @@ footer { display: none !important; }
 """
 
 # ─── UI LAYOUT WITH SIDEBAR ───
-with gr.Blocks(title="LokNayak Legal AI", css=custom_css) as demo:
-    session_state = gr.State([])
+with gr.Blocks(title="LokNayak Legal AI") as demo:
 
     # ─────────────────────────────────────────────────────────────
     # SIDEBAR PANEL (ChatGPT / Gemini Style)
@@ -297,12 +296,11 @@ with gr.Blocks(title="LokNayak Legal AI", css=custom_css) as demo:
         </div>
     """)
 
-    chatbot = gr.Chatbot(
+    "chatbot = gr.Chatbot(
         label="",
         height=580,
         show_label=False,
-        show_copy_button=True,
-        avatar_images=(None, "🏛️")
+        avatar_images=(None, 🏛️")
     )
 
     with gr.Row():
