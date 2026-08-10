@@ -273,8 +273,7 @@ with gr.Blocks(title="LokNayak Legal AI", css=custom_css) as demo:
 
         # 4. Google Auth & User Profile Section
         gr.Markdown("### 👤 Account & Access")
-        # Native Gradio Google OAuth Component
-        google_auth_btn = gr.OAuthButton()
+        google_auth_btn = gr.Button("🌐 Sign in with Google", variant="secondary")
         
         gr.HTML("""
             <div class="profile-card">
