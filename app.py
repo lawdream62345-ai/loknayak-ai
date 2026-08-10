@@ -17,10 +17,11 @@ APP_NAME = "LokNayak Legal AI"
 USERS = {"admin": "loknayak2026", "lawyer1": "firm2026"}
 
 print("=" * 60)
-print(f"  🔑 {APP_NAME} SETUP")
+print(f"  🚀 STARTING {APP_NAME} SERVER")
 print("=" * 60)
-GROQ_KEY = input("Enter Groq API Key (Primary - press Enter to skip): ").strip() or os.environ.get("GROQ_KEY")
-GEMINI_KEY = input("Enter Gemini API Key (Backup - press Enter to skip): ").strip() or os.environ.get("GEMINI_KEY")
+# Pulling keys directly from Render Environment Variables
+GROQ_KEY = os.environ.get("GROQ_KEY")
+GEMINI_KEY = os.environ.get("GEMINI_KEY")
 
 WORKING_PROVIDERS = []
 if GROQ_KEY: WORKING_PROVIDERS.append("groq")
