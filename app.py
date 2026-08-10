@@ -363,5 +363,5 @@ with gr.Blocks(title="LokNayak Legal AI", css=custom_css) as demo:
         outputs=[chatbot, file_input, status_text]
     )
 
-# Deployed on Port 10000 for Render
-demo.launch(server_name="0.0.0.0", server_port=10000, auth=list(USERS.items()), auth_message="Welcome to LokNayak Legal AI Platform.", css=custom_css)
+PORT = int(os.environ.get("PORT", 10000))
+demo.launch(server_name="0.0.0.0", server_port=PORT, auth=list(USERS.items()), auth_message="Welcome to LokNayak Legal AI Platform.", css=custom_css)
