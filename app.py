@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════════
 #  ⚖️ LOKNAYAK LEGAL AI — FULL FEATURE SIDEBAR & MULTI-AGENT PLATFORM
-#  Features: Sidebar, Google Auth UI, New Chat, History, Multi-Agent Toggle
+#  Optimized for Render Deployment & Gradio 6.0
 # ═══════════════════════════════════════════════════════════════════
 
 import gradio as gr
@@ -241,9 +241,10 @@ footer { display: none !important; }
 
 # ─── UI LAYOUT WITH SIDEBAR ───
 with gr.Blocks(title="LokNayak Legal AI") as demo:
+    session_state = gr.State([])
 
     # ─────────────────────────────────────────────────────────────
-    # SIDEBAR PANEL (ChatGPT / Gemini Style)
+    # SIDEBAR PANEL
     # ─────────────────────────────────────────────────────────────
     with gr.Sidebar(label="LokNayak Navigation"):
         gr.Markdown("## ⚖️ LokNayak AI")
@@ -296,11 +297,11 @@ with gr.Blocks(title="LokNayak Legal AI") as demo:
         </div>
     """)
 
-    "chatbot = gr.Chatbot(
+    chatbot = gr.Chatbot(
         label="",
         height=580,
         show_label=False,
-        avatar_images=(None, 🏛️")
+        avatar_images=(None, "🏛️")
     )
 
     with gr.Row():
@@ -325,14 +326,11 @@ with gr.Blocks(title="LokNayak Legal AI") as demo:
     )
 
     # ─── EVENT HANDLERS ───
-    
-    # Session list display formatter
     def update_session_ui(sessions):
         if not sessions:
             return "No active cases."
         return "\n".join([f"• {s}" for s in sessions[:5]])
 
-    # Chat Submit Handlers
     chat_event = msg_input.submit(
         fn=process_chat,
         inputs=[msg_input, file_input, pipeline_selector, chatbot, session_state],
@@ -353,12 +351,12 @@ with gr.Blocks(title="LokNayak Legal AI") as demo:
         outputs=session_display
     )
 
-    # New Chat Handler
     new_chat_btn.click(
         fn=start_new_chat,
         inputs=[],
         outputs=[chatbot, file_input, status_text]
     )
 
+# Deployed dynamically on Render
 PORT = int(os.environ.get("PORT", 10000))
 demo.launch(server_name="0.0.0.0", server_port=PORT, auth=list(USERS.items()), auth_message="Welcome to LokNayak Legal AI Platform.", css=custom_css)
