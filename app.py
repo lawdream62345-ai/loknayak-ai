@@ -284,7 +284,7 @@ with gr.Blocks(title="LokNayak Legal AI") as demo:
         logout_btn = gr.Button("Log Out", variant="secondary", link="/logout", visible=False)
 
     gr.HTML("<div class='header-bar'><h1>LokNayak Legal AI Assistant</h1><p style='color:#8e918f; font-size:0.85rem;'>Autonomous Multi-Agent Legal Research, Contract Review & Drafting</p></div>")
-    chatbot = gr.Chatbot(label="", height=580, show_label=False, type="messages", avatar_images=(None, "🏛️"))
+    chatbot = gr.Chatbot(label="", height=580, show_label=False, avatar_images=(None, "🏛️"))
     
     with gr.Row():
         file_input = gr.File(label="", file_types=[".pdf", ".docx"], type="filepath", scale=1, container=False)
