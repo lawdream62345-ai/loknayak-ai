@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════════
-#  ⚖️ LOKNAYAK LEGAL AI — ENTERPRISE EDITION
-#  Hybrid Multi-Agent | FastAPI Backend | Native Google OAuth
+#  ⚖️ LOKNAYAK LEGAL AI — ENTERPRISE EDITION (FIRESTORE CLOUD SYNC)
+#  Multi-Agent Pipeline | Real Google OAuth | Firestore Cross-Device Sync
 # ═══════════════════════════════════════════════════════════════════
 
 import gradio as gr
@@ -8,17 +8,21 @@ import requests
 import time
 import os
 import re
+import json
 import PyPDF2
 import docx
 from google import genai
 from google.genai import types
 
-# ─── NEW SERVER IMPORTS ───
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 from authlib.integrations.starlette_client import OAuth
+
+# ─── FIREBASE / FIRESTORE IMPORTS ───
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 APP_NAME = "LokNayak Legal AI"
 print("=" * 60)
@@ -29,7 +33,55 @@ GROQ_KEY = os.environ.get("GROQ_KEY")
 GEMINI_KEY = os.environ.get("GEMINI_KEY")
 
 # ═══════════════════════════════════════════════════════════════════
-# 1. FASTAPI & GOOGLE OAUTH SETUP
+# 1. FIRESTORE DATABASE INITIALIZATION
+# ═══════════════════════════════════════════════════════════════════
+db = None
+firebase_json_env = os.environ.get("FIREBASE_CREDENTIALS_JSON")
+
+if firebase_json_env:
+    try:
+        cred_dict = json.loads(firebase_json_env)
+        cred = credentials.Certificate(cred_dict)
+        firebase_admin.initialize_app(cred)
+        db = firestore.client()
+        print("✅ Firestore Cloud Database Connected Successfully!")
+    except Exception as e:
+        print("⚠️ Firestore Initialization Warning:", e)
+else:
+    print("ℹ️ FIREBASE_CREDENTIALS_JSON not found. Running in Local Memory fallback mode.")
+
+# Helper Functions for Cloud Database CRUD
+def save_chat_to_cloud(email, title, history):
+    if not db or not email or not title:
+        return
+    try:
+        doc_ref = db.collection("users").document(email).collection("chats").document(title)
+        doc_ref.set({
+            "title": title,
+            "history": history,
+            "updated_at": firestore.SERVER_TIMESTAMP
+        }, merge=True)
+    except Exception as e:
+        print(f"Error saving to Firestore: {e}")
+
+def fetch_user_chats_from_cloud(email):
+    if not db or not email:
+        return {}
+    try:
+        chats_ref = db.collection("users").document(email).collection("chats").order_by("updated_at", direction=firestore.Query.DESCENDING)
+        docs = chats_ref.stream()
+        user_chats = {}
+        for doc in docs:
+            data = doc.to_dict()
+            user_chats[data.get("title", doc.id)] = data.get("history", [])
+        return user_chats
+    except Exception as e:
+        print(f"Error fetching from Firestore: {e}")
+        return {}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 2. FASTAPI & GOOGLE OAUTH SETUP
 # ═══════════════════════════════════════════════════════════════════
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key="loknayak-secure-key-2026")
@@ -46,7 +98,6 @@ oauth.register(
 @app.get("/login")
 async def login(request: Request):
     redirect_uri = request.url_for('auth')
-    # Render forces HTTPS, so we ensure the redirect URL matches
     if "onrender.com" in str(redirect_uri):
         redirect_uri = str(redirect_uri).replace("http://", "https://")
     return await oauth.google.authorize_redirect(request, redirect_uri)
@@ -69,7 +120,7 @@ async def logout(request: Request):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 2. AI ENGINE & CHAT LOGIC
+# 3. AI ENGINE & CHAT CONTROLLER
 # ═══════════════════════════════════════════════════════════════════
 def parse_file(file_path):
     if not file_path: return ""
@@ -115,13 +166,25 @@ def call_llm(system_prompt, user_prompt, model_name="llama-3.1-8b-instant"):
         except Exception: pass
     return None, "None"
 
-def process_chat(user_message, file_obj, pipeline_mode, history, chats_store, current_title):
+def process_chat(user_message, file_obj, pipeline_mode, history, chats_store, current_title, request: gr.Request):
     if not user_message.strip() and not file_obj:
         yield "", history, chats_store, gr.update(), "⚠️ Please type a query or attach a document."
         return
 
+    user_info = request.request.session.get('user') if request else None
+    user_email = user_info.get('email') if user_info else None
+
     doc_text = parse_file(file_obj) if file_obj else ""
     if len(doc_text) > 20000: doc_text = doc_text[:20000]
+
+    # Context Memory
+    memory_context = ""
+    if history and len(history) > 0:
+        memory_context = "--- PREVIOUS CONVERSATION CONTEXT ---\n"
+        for msg in history:
+            if isinstance(msg, dict):
+                role = "USER" if msg.get("role") == "user" else "LOKNAYAK AI"
+                memory_context += f"{role}: {msg.get('content', '')}\n\n"
 
     display_msg = user_message
     if file_obj: display_msg = f"📎 *[Attached: {os.path.basename(file_obj)}]*\n\n" + user_message
@@ -129,15 +192,18 @@ def process_chat(user_message, file_obj, pipeline_mode, history, chats_store, cu
     history.append({"role": "user", "content": display_msg})
     active_title = current_title if (current_title and current_title != "New Case") else (user_message[:30] + "..." if len(user_message) > 30 else (user_message or "Doc Analysis"))
     start_time = time.time()
-    input_payload = f"USER QUERY:\n{user_message}\n" + (f"\nATTACHED DOC:\n{doc_text}\n" if doc_text else "")
+    
+    input_payload = f"{memory_context}\n--- CURRENT USER QUERY ---\n{user_message}\n"
+    if doc_text:
+        input_payload += f"\n--- ATTACHED DOCUMENT CONTEXT ---\n{doc_text}\n"
 
     if pipeline_mode == "Multi-Agent Pipeline (Deep)":
         history.append({"role": "assistant", "content": "🤖 **LokNayak Multi-Agent Pipeline Initiated...**\n\n"})
         yield "", history, chats_store, gr.update(), "Initiating Pipeline..."
 
-        history[-1]["content"] += "🔍 **Agent 1 (Research):** Extracting relevant statutes & principles...\n"
+        history[-1]["content"] += "🔍 **Agent 1 (Research):** Analyzing context, statutes & Indian precedents...\n"
         yield "", history, chats_store, gr.update(), "Agent 1 Working..."
-        research_out, p1 = call_llm("You are Agent 1: Legal Researcher. Extract core legal issues, statutes, and precedents.", input_payload, "llama-3.1-8b-instant")
+        research_out, p1 = call_llm("You are Agent 1: Legal Researcher. Extract core legal issues, Indian statutes, and precedents.", input_payload, "llama-3.1-8b-instant")
         if not research_out:
             history[-1]["content"] += "\n❌ Pipeline Error: Engine unavailable."
             yield "", history, chats_store, gr.update(), "Failed"
@@ -145,12 +211,12 @@ def process_chat(user_message, file_obj, pipeline_mode, history, chats_store, cu
         history[-1]["content"] += f"✓ Research completed ({p1}).\n\n"
         yield "", history, chats_store, gr.update(), "Agent 2 Working..."
 
-        history[-1]["content"] += "⚖️ **Agent 2 (Risk Analyst):** Evaluating liabilities and procedural weaknesses...\n"
+        history[-1]["content"] += "⚖️ **Agent 2 (Risk Analyst):** Evaluating procedural factors & risks...\n"
         risk_out, _ = call_llm("You are Agent 2: Risk Analyst. Identify legal risks, evidentiary hurdles, and procedural weaknesses.", f"QUERY:\n{input_payload}\nRESEARCH:\n{research_out}", "llama-3.1-8b-instant")
         history[-1]["content"] += "✓ Risk assessment completed.\n\n"
         yield "", history, chats_store, gr.update(), "Agent 3 Synthesizing..."
 
-        history[-1]["content"] += "🏛️ **Agent 3 (Senior Counsel):** Finalizing legal analysis...\n\n---\n\n"
+        history[-1]["content"] += "🏛️ **Agent 3 (Senior Counsel):** Drafting legal analysis...\n\n---\n\n"
         final_out, _ = call_llm("You are Agent 3: Senior Counsel. Synthesize findings into a final legal draft using Markdown headers (ISSUE, ANALYSIS, RECOMMENDATION). End with an AI disclaimer.", f"CONTEXT:\n{input_payload}\nRESEARCH:\n{research_out}\nRISKS:\n{risk_out}", "llama-3.3-70b-versatile")
         
         for token in re.split(r'(\s+)', final_out or "Analysis failed."):
@@ -166,11 +232,17 @@ def process_chat(user_message, file_obj, pipeline_mode, history, chats_store, cu
             yield "", history, chats_store, gr.update(), "Typing..."
             time.sleep(0.01)
 
+    # Save to local session + Sync to Cloud Database
     chats_store[active_title] = list(history)
-    yield "", history, chats_store, gr.update(choices=list(chats_store.keys()), value=active_title), f"⚡ Processed in {round(time.time() - start_time, 1)}s"
+    if user_email:
+        save_chat_to_cloud(user_email, active_title, list(history))
+
+    elapsed = round(time.time() - start_time, 1)
+    yield "", history, chats_store, gr.update(choices=list(chats_store.keys()), value=active_title), f"⚡ Processed in {elapsed}s (Saved to Cloud ☁️)"
 
 def load_past_chat(selected_title, chats_store):
-    if selected_title in chats_store: return chats_store[selected_title], selected_title, f"Loaded past chat: {selected_title}"
+    if selected_title in chats_store: 
+        return chats_store[selected_title], selected_title, f"Loaded past chat: {selected_title}"
     return [], "", "Ready"
 
 def start_new_chat():
@@ -178,7 +250,7 @@ def start_new_chat():
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 3. GRADIO UI LAYOUT
+# 4. GRADIO UI LAYOUT
 # ═══════════════════════════════════════════════════════════════════
 custom_css = """
 :root { --bg-main: #131314; --card-bg: #1e1f20; --text-primary: #e3e3e3; --text-muted: #8e918f; --accent: #a8c7fa; }
@@ -207,13 +279,12 @@ with gr.Blocks(title="LokNayak Legal AI") as demo:
         gr.Markdown("---")
         gr.Markdown("### 👤 Account & Access")
         
-        # Authentic Google Login Buttons mapped to FastAPI routes
         login_btn = gr.Button("🌐 Sign in with Google", variant="primary", link="/login")
         profile_html = gr.HTML("")
         logout_btn = gr.Button("Log Out", variant="secondary", link="/logout", visible=False)
 
     gr.HTML("<div class='header-bar'><h1>LokNayak Legal AI Assistant</h1><p style='color:#8e918f; font-size:0.85rem;'>Autonomous Multi-Agent Legal Research, Contract Review & Drafting</p></div>")
-    chatbot = gr.Chatbot(label="", height=580, show_label=False, avatar_images=(None, "🏛️"))
+    chatbot = gr.Chatbot(label="", height=580, show_label=False, type="messages", avatar_images=(None, "🏛️"))
     
     with gr.Row():
         file_input = gr.File(label="", file_types=[".pdf", ".docx"], type="filepath", scale=1, container=False)
@@ -222,16 +293,35 @@ with gr.Blocks(title="LokNayak Legal AI") as demo:
 
     status_text = gr.HTML("<div style='text-align:center; font-size:0.75rem; color:#8e918f; margin-top:8px;'>LokNayak AI outputs must be reviewed by a qualified attorney.</div>")
 
-    # Dynamic Profile loader checks if FastAPI session has user data
-    def load_user_profile(request: gr.Request):
+    # Sync Profile & Load Cloud History
+    def load_user_profile_and_history(request: gr.Request):
         user = request.request.session.get('user') if request else None
         if user:
-            name, email, pic = user.get('name', 'Counsel'), user.get('email', ''), user.get('picture', '')
-            html = f"<div class='profile-card'><div style='display:flex; align-items:center; gap:10px;'><img src='{pic}' style='width:40px; height:40px; border-radius:50%;'><div><div style='font-weight:600; font-size:0.9rem; color:#e3e3e3;'>{name}</div><div style='font-size:0.75rem; color:#a8c7fa;'>{email}</div></div></div></div>"
-            return gr.update(visible=False), html, gr.update(visible=True)
-        return gr.update(visible=True), "", gr.update(visible=False)
+            name = user.get('name', 'Counsel')
+            email = user.get('email', '')
+            pic = user.get('picture', '')
+            if not pic:
+                pic = "https://cdn-icons-png.flaticon.com/512/3135/3135715.png"
 
-    demo.load(fn=load_user_profile, inputs=None, outputs=[login_btn, profile_html, logout_btn])
+            cloud_chats = fetch_user_chats_from_cloud(email)
+            chat_choices = list(cloud_chats.keys()) if cloud_chats else []
+
+            html = f"<div class='profile-card'><div style='display:flex; align-items:center; gap:10px;'><img src='{pic}' style='width:40px; height:40px; border-radius:50%;'><div><div style='font-weight:600; font-size:0.9rem; color:#e3e3e3;'>{name}</div><div style='font-size:0.75rem; color:#a8c7fa;'>{email}</div></div></div></div>"
+            
+            return (
+                gr.update(visible=False), 
+                html, 
+                gr.update(visible=True), 
+                cloud_chats, 
+                gr.update(choices=chat_choices)
+            )
+        return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[])
+
+    demo.load(
+        fn=load_user_profile_and_history, 
+        inputs=None, 
+        outputs=[login_btn, profile_html, logout_btn, chats_store, history_dropdown]
+    )
 
     msg_input.submit(fn=process_chat, inputs=[msg_input, file_input, pipeline_selector, chatbot, chats_store, active_title], outputs=[msg_input, chatbot, chats_store, history_dropdown, status_text])
     send_btn.click(fn=process_chat, inputs=[msg_input, file_input, pipeline_selector, chatbot, chats_store, active_title], outputs=[msg_input, chatbot, chats_store, history_dropdown, status_text])
@@ -239,7 +329,7 @@ with gr.Blocks(title="LokNayak Legal AI") as demo:
     new_chat_btn.click(fn=start_new_chat, inputs=[], outputs=[chatbot, file_input, active_title, history_dropdown, status_text])
 
 # ═══════════════════════════════════════════════════════════════════
-# 4. STARTUP HANDLER (MERGING FASTAPI & GRADIO)
+# 5. STARTUP HANDLER
 # ═══════════════════════════════════════════════════════════════════
 app = gr.mount_gradio_app(app, demo, path="/")
 
