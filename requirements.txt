@@ -1,5 +1,10 @@
-gradio[oauth]
-google-genai
+gradio
 requests
 PyPDF2
 python-docx
+google-genai
+fastapi
+uvicorn
+authlib
+itsdangerous
+httpx
