@@ -1,6 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════
 #  ⚖️ LOKNAYAK LEGAL AI — ENTERPRISE EDITION (FIRESTORE CLOUD SYNC)
-#  Multi-Agent Pipeline | Real Google OAuth | Firestore Cross-Device Sync
 # ═══════════════════════════════════════════════════════════════════
 
 import gradio as gr
@@ -20,7 +19,6 @@ from fastapi.responses import RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 from authlib.integrations.starlette_client import OAuth
 
-# ─── FIREBASE / FIRESTORE IMPORTS ───
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -50,19 +48,22 @@ if firebase_json_env:
 else:
     print("ℹ️ FIREBASE_CREDENTIALS_JSON not found. Running in Local Memory fallback mode.")
 
-# Helper Functions for Cloud Database CRUD
 def save_chat_to_cloud(email, title, history):
     if not db or not email or not title:
+        print("⚠️ Skipping cloud save: Missing db, email, or title.")
         return
     try:
-        doc_ref = db.collection("users").document(email).collection("chats").document(title)
+        # Sanitize title so slashes don't break Firestore path hierarchy
+        safe_doc_id = re.sub(r'[/]+', '-', title).strip()
+        doc_ref = db.collection("users").document(email).collection("chats").document(safe_doc_id)
         doc_ref.set({
             "title": title,
             "history": history,
             "updated_at": firestore.SERVER_TIMESTAMP
         }, merge=True)
+        print(f"✅ Chat '{title}' saved to Firestore for {email}")
     except Exception as e:
-        print(f"Error saving to Firestore: {e}")
+        print(f"❌ Error saving to Firestore: {e}")
 
 def fetch_user_chats_from_cloud(email):
     if not db or not email:
@@ -74,11 +75,11 @@ def fetch_user_chats_from_cloud(email):
         for doc in docs:
             data = doc.to_dict()
             user_chats[data.get("title", doc.id)] = data.get("history", [])
+        print(f"✅ Fetched {len(user_chats)} past chats for {email}")
         return user_chats
     except Exception as e:
-        print(f"Error fetching from Firestore: {e}")
+        print(f"❌ Error fetching from Firestore: {e}")
         return {}
-
 
 # ═══════════════════════════════════════════════════════════════════
 # 2. FASTAPI & GOOGLE OAUTH SETUP
@@ -117,7 +118,6 @@ async def auth(request: Request):
 async def logout(request: Request):
     request.session.pop('user', None)
     return RedirectResponse(url='/')
-
 
 # ═══════════════════════════════════════════════════════════════════
 # 3. AI ENGINE & CHAT CONTROLLER
@@ -166,18 +166,14 @@ def call_llm(system_prompt, user_prompt, model_name="llama-3.1-8b-instant"):
         except Exception: pass
     return None, "None"
 
-def process_chat(user_message, file_obj, pipeline_mode, history, chats_store, current_title, request: gr.Request):
+def process_chat(user_message, file_obj, pipeline_mode, history, chats_store, current_title, user_email):
     if not user_message.strip() and not file_obj:
         yield "", history, chats_store, gr.update(), "⚠️ Please type a query or attach a document."
         return
 
-    user_info = request.request.session.get('user') if request else None
-    user_email = user_info.get('email') if user_info else None
-
     doc_text = parse_file(file_obj) if file_obj else ""
     if len(doc_text) > 20000: doc_text = doc_text[:20000]
 
-    # Context Memory
     memory_context = ""
     if history and len(history) > 0:
         memory_context = "--- PREVIOUS CONVERSATION CONTEXT ---\n"
@@ -232,7 +228,6 @@ def process_chat(user_message, file_obj, pipeline_mode, history, chats_store, cu
             yield "", history, chats_store, gr.update(), "Typing..."
             time.sleep(0.01)
 
-    # Save to local session + Sync to Cloud Database
     chats_store[active_title] = list(history)
     if user_email:
         save_chat_to_cloud(user_email, active_title, list(history))
@@ -247,7 +242,6 @@ def load_past_chat(selected_title, chats_store):
 
 def start_new_chat():
     return [], None, "", gr.update(value=None), "Started new chat session."
-
 
 # ═══════════════════════════════════════════════════════════════════
 # 4. GRADIO UI LAYOUT
@@ -266,6 +260,7 @@ footer { display: none !important; }
 with gr.Blocks(title="LokNayak Legal AI") as demo:
     chats_store = gr.State({})
     active_title = gr.State("")
+    user_email_state = gr.State("")
 
     with gr.Sidebar(label="LokNayak Navigation"):
         gr.Markdown("## ⚖️ LokNayak AI")
@@ -293,7 +288,6 @@ with gr.Blocks(title="LokNayak Legal AI") as demo:
 
     status_text = gr.HTML("<div style='text-align:center; font-size:0.75rem; color:#8e918f; margin-top:8px;'>LokNayak AI outputs must be reviewed by a qualified attorney.</div>")
 
-    # Sync Profile & Load Cloud History
     def load_user_profile_and_history(request: gr.Request):
         user = request.request.session.get('user') if request else None
         if user:
@@ -313,18 +307,19 @@ with gr.Blocks(title="LokNayak Legal AI") as demo:
                 html, 
                 gr.update(visible=True), 
                 cloud_chats, 
-                gr.update(choices=chat_choices)
+                gr.update(choices=chat_choices, value=None),
+                email
             )
-        return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[])
+        return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[], value=None), ""
 
     demo.load(
         fn=load_user_profile_and_history, 
         inputs=None, 
-        outputs=[login_btn, profile_html, logout_btn, chats_store, history_dropdown]
+        outputs=[login_btn, profile_html, logout_btn, chats_store, history_dropdown, user_email_state]
     )
 
-    msg_input.submit(fn=process_chat, inputs=[msg_input, file_input, pipeline_selector, chatbot, chats_store, active_title], outputs=[msg_input, chatbot, chats_store, history_dropdown, status_text])
-    send_btn.click(fn=process_chat, inputs=[msg_input, file_input, pipeline_selector, chatbot, chats_store, active_title], outputs=[msg_input, chatbot, chats_store, history_dropdown, status_text])
+    msg_input.submit(fn=process_chat, inputs=[msg_input, file_input, pipeline_selector, chatbot, chats_store, active_title, user_email_state], outputs=[msg_input, chatbot, chats_store, history_dropdown, status_text])
+    send_btn.click(fn=process_chat, inputs=[msg_input, file_input, pipeline_selector, chatbot, chats_store, active_title, user_email_state], outputs=[msg_input, chatbot, chats_store, history_dropdown, status_text])
     history_dropdown.change(fn=load_past_chat, inputs=[history_dropdown, chats_store], outputs=[chatbot, active_title, status_text])
     new_chat_btn.click(fn=start_new_chat, inputs=[], outputs=[chatbot, file_input, active_title, history_dropdown, status_text])
 
