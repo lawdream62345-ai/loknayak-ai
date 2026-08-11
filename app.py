@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════════
-#  ⚖️ LOKNAYAK LEGAL AI — FULL FEATURE SIDEBAR & MULTI-AGENT PLATFORM
-#  Optimized for Render Deployment & Gradio 6.0
+#  ⚖️ LOKNAYAK LEGAL AI — FINAL PRODUCTION DEPLOYMENT
+#  Hybrid Multi-Agent Pipeline | Real Google OAuth | Gradio 6.0 Ready
 # ═══════════════════════════════════════════════════════════════════
 
 import gradio as gr
@@ -44,33 +44,35 @@ def parse_file(file_path):
     except Exception as e:
         return f"[File Read Error: {str(e)}]"
 
-# ─── LLM ENGINE HELPER ───
-def call_llm(system_prompt, user_prompt):
-    """Executes calls against Groq primary or Gemini backup."""
-    # 1. Groq Call
+# ─── OPTIMIZED MULTI-MODEL LLM HELPER ───
+def call_llm(system_prompt, user_prompt, model_name="llama-3.1-8b-instant"):
+    """
+    Executes calls against Groq primary (with ultra-fast 8B for agents 1&2,
+    and 70B for final synthesis) with fallback to Gemini.
+    """
     if GROQ_KEY:
         try:
             resp = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
                 json={
-                    "model": "llama-3.3-70b-versatile",
+                    "model": model_name,
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
                     "temperature": 0.2,
-                    "max_tokens": 2000
+                    "max_tokens": 1800
                 },
-                timeout=35
+                timeout=20
             )
             data = resp.json()
-            if "choices" in data:
-                return data["choices"][0]["message"]["content"], "Groq Llama-3.3"
+            if "choices" in data and len(data["choices"]) > 0:
+                return data["choices"][0]["message"]["content"], f"Groq ({model_name})"
         except Exception:
             pass
 
-    # 2. Gemini Backup Call
+    # Fallback to Gemini
     if GEMINI_KEY:
         try:
             client = genai.Client(api_key=GEMINI_KEY)
@@ -89,10 +91,10 @@ def call_llm(system_prompt, user_prompt):
 
     return None, "None"
 
-# ─── CHAT CONTROLLER (Single vs Multi-Agent) ───
-def process_chat(user_message, file_obj, pipeline_mode, history, session_list):
+# ─── MAIN CHAT CONTROLLER ───
+def process_chat(user_message, file_obj, pipeline_mode, history, chats_store, current_title):
     if not user_message.strip() and not file_obj:
-        yield "", history, session_list, "⚠️ Please type a query or attach a document."
+        yield "", history, chats_store, gr.update(), "⚠️ Please type a query or attach a document."
         return
 
     doc_text = parse_file(file_obj) if file_obj else ""
@@ -105,11 +107,12 @@ def process_chat(user_message, file_obj, pipeline_mode, history, session_list):
         display_msg = f"📎 *[Attached: {filename}]*\n\n" + user_message
 
     history.append({"role": "user", "content": display_msg})
-    
-    # Update Session History List
-    short_title = user_message[:28] + "..." if len(user_message) > 28 else (user_message or "Document Review")
-    if short_title not in session_list:
-        session_list.insert(0, short_title)
+
+    # Determine Title for Session History
+    if not current_title or current_title == "New Case":
+        active_title = user_message[:30] + "..." if len(user_message) > 30 else (user_message or "Doc Analysis")
+    else:
+        active_title = current_title
 
     start_time = time.time()
     input_payload = f"USER QUERY:\n{user_message}\n"
@@ -117,81 +120,91 @@ def process_chat(user_message, file_obj, pipeline_mode, history, session_list):
         input_payload += f"\nATTACHED DOCUMENT CONTEXT:\n{doc_text}\n"
 
     # ─────────────────────────────────────────────────────────────
-    # MODE 1: MULTI-AGENT COLLABORATIVE PIPELINE
+    # MULTI-AGENT PIPELINE (HYBRID FAST ENGINE)
     # ─────────────────────────────────────────────────────────────
     if pipeline_mode == "Multi-Agent Pipeline (Deep)":
         history.append({"role": "assistant", "content": "🤖 **LokNayak Multi-Agent Pipeline Initiated...**\n\n"})
-        yield "", history, session_list, "Initiating Multi-Agent Pipeline..."
+        yield "", history, chats_store, gr.update(), "Initiating Pipeline..."
 
-        # Step 1: Legal Researcher
-        history[-1]["content"] += "🔍 **Agent 1 (Legal Researcher):** Scanning statutes, cases, and constitutional provisions...\n"
-        yield "", history, session_list, "Agent 1 Working..."
+        # Agent 1: Fast Research (llama-3.1-8b-instant)
+        history[-1]["content"] += "🔍 **Agent 1 (Research):** Extracting relevant statutes & principles...\n"
+        yield "", history, chats_store, gr.update(), "Agent 1 Working..."
         
-        researcher_sys = "You are Agent 1: Senior Legal Researcher. Extract legal issues, statutes, and applicable precedents."
-        research_out, provider = call_llm(researcher_sys, input_payload)
+        researcher_sys = "You are Agent 1: Legal Researcher. Extract core legal issues, Indian statutes, and applicable precedents."
+        research_out, p1 = call_llm(researcher_sys, input_payload, model_name="llama-3.1-8b-instant")
         
         if not research_out:
-            history[-1]["content"] += "\n❌ Pipeline Error: Providers failed."
-            yield "", history, session_list, "Failed"
+            history[-1]["content"] += "\n❌ Pipeline Error: Engine unavailable."
+            yield "", history, chats_store, gr.update(), "Failed"
             return
             
-        history[-1]["content"] += f"✓ Research complete ({provider}).\n\n"
-        yield "", history, session_list, "Agent 2 Working..."
+        history[-1]["content"] += f"✓ Research completed ({p1}).\n\n"
+        yield "", history, chats_store, gr.update(), "Agent 2 Working..."
 
-        # Step 2: Risk Analyst
-        history[-1]["content"] += "⚖️ **Agent 2 (Risk Analyst):** Evaluating procedural defenses and liabilities...\n"
-        risk_sys = "You are Agent 2: Legal Risk Analyst. Identify liabilities, loopholes, procedural weaknesses, and risks."
-        risk_out, _ = call_llm(risk_sys, f"QUERY:\n{input_payload}\nRESEARCH:\n{research_out}")
+        # Agent 2: Risk Analysis (llama-3.1-8b-instant)
+        history[-1]["content"] += "⚖️ **Agent 2 (Risk Analyst):** Evaluating liabilities and procedural weaknesses...\n"
+        risk_sys = "You are Agent 2: Risk Analyst. Identify legal risks, evidentiary hurdles, and procedural weaknesses."
+        risk_out, _ = call_llm(risk_sys, f"QUERY:\n{input_payload}\nRESEARCH:\n{research_out}", model_name="llama-3.1-8b-instant")
         
-        history[-1]["content"] += "✓ Risk assessment complete.\n\n"
-        yield "", history, session_list, "Agent 3 Synthesizing..."
+        history[-1]["content"] += "✓ Risk assessment completed.\n\n"
+        yield "", history, chats_store, gr.update(), "Agent 3 Synthesizing..."
 
-        # Step 3: Senior Counsel Synthesizer
-        history[-1]["content"] += "🏛️ **Agent 3 (Senior Counsel):** Drafting final legal analysis...\n\n---\n\n"
-        synth_sys = """You are Agent 3: Senior Legal Counsel. Synthesize all findings into a structured legal response.
-Formatting:
+        # Agent 3: Senior Synthesis (llama-3.3-70b-versatile)
+        history[-1]["content"] += "🏛️ **Agent 3 (Senior Counsel):** Finalizing legal analysis...\n\n---\n\n"
+        synth_sys = """You are Agent 3: Senior Counsel. Synthesize findings into a final legal draft.
+Structure using Markdown:
 ### 1. ISSUE
 ### 2. ANALYSIS
 ### 3. RECOMMENDATION
 End with: 'This is an AI-assisted analysis generated by LokNayak. Please review with a licensed attorney before use.'"""
 
-        final_out, _ = call_llm(synth_sys, f"CONTEXT:\n{input_payload}\nRESEARCH:\n{research_out}\nRISKS:\n{risk_out}")
+        final_out, _ = call_llm(synth_sys, f"CONTEXT:\n{input_payload}\nRESEARCH:\n{research_out}\nRISKS:\n{risk_out}", model_name="llama-3.3-70b-versatile")
         
         tokens = re.split(r'(\s+)', final_out or "Analysis failed.")
         for token in tokens:
             history[-1]["content"] += token
-            yield "", history, session_list, "Finalizing..."
-            time.sleep(0.01)
+            yield "", history, chats_store, gr.update(), "Finalizing..."
+            time.sleep(0.008)
 
     # ─────────────────────────────────────────────────────────────
-    # MODE 2: SINGLE AGENT FAST MODE
+    # SINGLE AGENT MODE (FAST)
     # ─────────────────────────────────────────────────────────────
     else:
         history.append({"role": "assistant", "content": ""})
-        yield "", history, session_list, "Thinking..."
+        yield "", history, chats_store, gr.update(), "Thinking..."
 
-        single_sys = """You are LokNayak, an elite senior legal counsel AI.
-Structure every legal response clearly using Markdown:
+        single_sys = """You are LokNayak, Senior Legal Counsel AI.
+Structure every legal response using Markdown:
 ### 1. ISSUE
 ### 2. ANALYSIS
 ### 3. RECOMMENDATION
 End with: 'This is an AI-assisted analysis. Please review with a licensed attorney before use.'"""
 
-        res_text, provider = call_llm(single_sys, input_payload)
+        res_text, provider = call_llm(single_sys, input_payload, model_name="llama-3.3-70b-versatile")
         tokens = re.split(r'(\s+)', res_text or "Analysis failed.")
         for token in tokens:
             history[-1]["content"] += token
-            yield "", history, session_list, "Typing..."
-            time.sleep(0.012)
+            yield "", history, chats_store, gr.update(), "Typing..."
+            time.sleep(0.01)
+
+    # Save to Chat Store
+    chats_store[active_title] = list(history)
+    chat_choices = list(chats_store.keys())
 
     elapsed = round(time.time() - start_time, 1)
-    yield "", history, session_list, f"⚡ Processed in {elapsed}s"
+    yield "", history, chats_store, gr.update(choices=chat_choices, value=active_title), f"⚡ Processed in {elapsed}s"
 
-# ─── NEW CHAT RESET FUNCTION ───
+# ─── RESTORE PAST CHAT FUNCTION ───
+def load_past_chat(selected_title, chats_store):
+    if selected_title in chats_store:
+        return chats_store[selected_title], selected_title, f"Loaded past chat: {selected_title}"
+    return [], "", "Ready"
+
+# ─── NEW CHAT FUNCTION ───
 def start_new_chat():
-    return [], None, "Started new chat session."
+    return [], None, "", gr.update(value=None), "Started new chat session."
 
-# ─── STYLING & CUSTOM CSS ───
+# ─── STYLING ───
 custom_css = """
 :root {
     --bg-main: #131314;
@@ -199,62 +212,42 @@ custom_css = """
     --text-primary: #e3e3e3;
     --text-muted: #8e918f;
     --accent: #a8c7fa;
-    --sidebar-bg: #1e1f20;
 }
 body, .gradio-container {
     background-color: var(--bg-main) !important;
     color: var(--text-primary) !important;
     font-family: 'Google Sans', 'Inter', sans-serif !important;
 }
-.gradio-container {
-    max-width: 1200px !important;
-    margin: 0 auto !important;
-}
-.header-bar {
-    text-align: center;
-    padding: 15px 0 5px 0;
-}
+.gradio-container { max-width: 1200px !important; margin: 0 auto !important; }
+.header-bar { text-align: center; padding: 15px 0 5px 0; }
 .header-bar h1 {
-    font-size: 1.8rem;
-    font-weight: 600;
+    font-size: 1.8rem; font-weight: 600;
     background: linear-gradient(135deg, #a8c7fa, #d3e3fd);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    margin: 0;
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0;
 }
 .new-chat-btn button {
-    background: #2b2c2e !important;
-    color: #a8c7fa !important;
-    border: 1px solid #3c4043 !important;
-    border-radius: 20px !important;
-    font-weight: 600 !important;
+    background: #2b2c2e !important; color: #a8c7fa !important;
+    border: 1px solid #3c4043 !important; border-radius: 20px !important; font-weight: 600 !important;
 }
 .profile-card {
-    background: #2b2c2e;
-    border-radius: 12px;
-    padding: 12px;
-    margin-top: 20px;
-    border: 1px solid #3c4043;
+    background: #2b2c2e; border-radius: 12px; padding: 12px; margin-top: 20px; border: 1px solid #3c4043;
 }
 footer { display: none !important; }
 """
 
-# ─── UI LAYOUT WITH SIDEBAR ───
+# ─── UI LAYOUT ───
 with gr.Blocks(title="LokNayak Legal AI") as demo:
-    session_state = gr.State([])
+    chats_store = gr.State({})
+    active_title = gr.State("")
 
-    # ─────────────────────────────────────────────────────────────
-    # SIDEBAR PANEL
-    # ─────────────────────────────────────────────────────────────
+    # SIDEBAR
     with gr.Sidebar(label="LokNayak Navigation"):
         gr.Markdown("## ⚖️ LokNayak AI")
         
-        # 1. New Chat Button
         new_chat_btn = gr.Button("➕ New Case Chat", elem_classes="new-chat-btn")
         
         gr.Markdown("---")
         
-        # 2. Pipeline Mode Switch
         gr.Markdown("### ⚙️ Engine Mode")
         pipeline_selector = gr.Radio(
             choices=["Fast Mode (Single AI)", "Multi-Agent Pipeline (Deep)"],
@@ -265,15 +258,20 @@ with gr.Blocks(title="LokNayak Legal AI") as demo:
 
         gr.Markdown("---")
 
-        # 3. Recent Case Sessions
-        gr.Markdown("### 🕒 Recent Sessions")
-        session_display = gr.Markdown("No active cases in this session.")
+        # CLICKABLE RECENT CHAT HISTORY
+        gr.Markdown("### 📜 Recent Conversations")
+        history_dropdown = gr.Dropdown(
+            label="Select Past Chat to Load",
+            choices=[],
+            value=None,
+            interactive=True
+        )
 
         gr.Markdown("---")
 
-        # 4. Google Auth & User Profile Section
+        # REAL GOOGLE LOGIN BUTTON IS HERE
         gr.Markdown("### 👤 Account & Access")
-        google_auth_btn = gr.Button("🌐 Sign in with Google", variant="secondary")
+        google_login_btn = gr.LoginButton() 
         
         gr.HTML("""
             <div class="profile-card">
@@ -287,9 +285,7 @@ with gr.Blocks(title="LokNayak Legal AI") as demo:
             </div>
         """)
 
-    # ─────────────────────────────────────────────────────────────
-    # MAIN CHAT PANEL
-    # ─────────────────────────────────────────────────────────────
+    # MAIN CHAT
     gr.HTML("""
         <div class="header-bar">
             <h1>LokNayak Legal AI Assistant</h1>
@@ -325,38 +321,34 @@ with gr.Blocks(title="LokNayak Legal AI") as demo:
         "LokNayak AI outputs must be reviewed by a qualified attorney.</div>"
     )
 
-    # ─── EVENT HANDLERS ───
-    def update_session_ui(sessions):
-        if not sessions:
-            return "No active cases."
-        return "\n".join([f"• {s}" for s in sessions[:5]])
-
-    chat_event = msg_input.submit(
+    # ─── EVENT BINDINGS ───
+    
+    # Send Message
+    msg_input.submit(
         fn=process_chat,
-        inputs=[msg_input, file_input, pipeline_selector, chatbot, session_state],
-        outputs=[msg_input, chatbot, session_state, status_text]
-    ).then(
-        fn=update_session_ui,
-        inputs=session_state,
-        outputs=session_display
+        inputs=[msg_input, file_input, pipeline_selector, chatbot, chats_store, active_title],
+        outputs=[msg_input, chatbot, chats_store, history_dropdown, status_text]
     )
 
     send_btn.click(
         fn=process_chat,
-        inputs=[msg_input, file_input, pipeline_selector, chatbot, session_state],
-        outputs=[msg_input, chatbot, session_state, status_text]
-    ).then(
-        fn=update_session_ui,
-        inputs=session_state,
-        outputs=session_display
+        inputs=[msg_input, file_input, pipeline_selector, chatbot, chats_store, active_title],
+        outputs=[msg_input, chatbot, chats_store, history_dropdown, status_text]
     )
 
+    # Select and Load Past Chat from Sidebar Dropdown
+    history_dropdown.change(
+        fn=load_past_chat,
+        inputs=[history_dropdown, chats_store],
+        outputs=[chatbot, active_title, status_text]
+    )
+
+    # New Chat Button
     new_chat_btn.click(
         fn=start_new_chat,
         inputs=[],
-        outputs=[chatbot, file_input, status_text]
+        outputs=[chatbot, file_input, active_title, history_dropdown, status_text]
     )
 
-# Deployed dynamically on Render
 PORT = int(os.environ.get("PORT", 10000))
 demo.launch(server_name="0.0.0.0", server_port=PORT, auth=list(USERS.items()), auth_message="Welcome to LokNayak Legal AI Platform.", css=custom_css)
