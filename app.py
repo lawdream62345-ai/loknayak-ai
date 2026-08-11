@@ -50,10 +50,9 @@ else:
 
 def save_chat_to_cloud(email, title, history):
     if not db or not email or not title:
-        print("⚠️ Skipping cloud save: Missing db, email, or title.")
+        print(f"⚠️ Skipped saving. Email: {bool(email)}, Title: {bool(title)}")
         return
     try:
-        # Sanitize title so slashes don't break Firestore path hierarchy
         safe_doc_id = re.sub(r'[/]+', '-', title).strip()
         doc_ref = db.collection("users").document(email).collection("chats").document(safe_doc_id)
         doc_ref.set({
@@ -69,12 +68,28 @@ def fetch_user_chats_from_cloud(email):
     if not db or not email:
         return {}
     try:
-        chats_ref = db.collection("users").document(email).collection("chats").order_by("updated_at", direction=firestore.Query.DESCENDING)
+        # We fetch without ordering to bypass Firestore Index requirements, then sort in Python
+        chats_ref = db.collection("users").document(email).collection("chats")
         docs = chats_ref.stream()
-        user_chats = {}
+        
+        chat_data = []
         for doc in docs:
             data = doc.to_dict()
-            user_chats[data.get("title", doc.id)] = data.get("history", [])
+            title = data.get("title", doc.id)
+            history = data.get("history", [])
+            updated_at = data.get("updated_at")
+            # Convert timestamp for sorting
+            timestamp = updated_at.timestamp() if hasattr(updated_at, 'timestamp') else 0
+            
+            chat_data.append({"title": title, "history": history, "timestamp": timestamp})
+        
+        # Sort descending (newest first)
+        chat_data.sort(key=lambda x: x["timestamp"], reverse=True)
+        
+        user_chats = {}
+        for item in chat_data:
+            user_chats[item["title"]] = item["history"]
+            
         print(f"✅ Fetched {len(user_chats)} past chats for {email}")
         return user_chats
     except Exception as e:
@@ -168,7 +183,7 @@ def call_llm(system_prompt, user_prompt, model_name="llama-3.1-8b-instant"):
 
 def process_chat(user_message, file_obj, pipeline_mode, history, chats_store, current_title, user_email):
     if not user_message.strip() and not file_obj:
-        yield "", history, chats_store, gr.update(), "⚠️ Please type a query or attach a document."
+        yield "", history, chats_store, current_title, gr.update(), "⚠️ Please type a query or attach a document."
         return
 
     doc_text = parse_file(file_obj) if file_obj else ""
@@ -186,46 +201,48 @@ def process_chat(user_message, file_obj, pipeline_mode, history, chats_store, cu
     if file_obj: display_msg = f"📎 *[Attached: {os.path.basename(file_obj)}]*\n\n" + user_message
 
     history.append({"role": "user", "content": display_msg})
-    active_title = current_title if (current_title and current_title != "New Case") else (user_message[:30] + "..." if len(user_message) > 30 else (user_message or "Doc Analysis"))
-    start_time = time.time()
     
+    # Preserve the title properly across the session
+    active_title = current_title if (current_title and current_title != "New Case") else (user_message[:30] + "..." if len(user_message) > 30 else (user_message or "Doc Analysis"))
+    
+    start_time = time.time()
     input_payload = f"{memory_context}\n--- CURRENT USER QUERY ---\n{user_message}\n"
     if doc_text:
         input_payload += f"\n--- ATTACHED DOCUMENT CONTEXT ---\n{doc_text}\n"
 
     if pipeline_mode == "Multi-Agent Pipeline (Deep)":
         history.append({"role": "assistant", "content": "🤖 **LokNayak Multi-Agent Pipeline Initiated...**\n\n"})
-        yield "", history, chats_store, gr.update(), "Initiating Pipeline..."
+        yield "", history, chats_store, active_title, gr.update(), "Initiating Pipeline..."
 
-        history[-1]["content"] += "🔍 **Agent 1 (Research):** Analyzing context, statutes & Indian precedents...\n"
-        yield "", history, chats_store, gr.update(), "Agent 1 Working..."
+        history[-1]["content"] += "🔍 **Agent 1 (Research):** Analyzing context, statutes & precedents...\n"
+        yield "", history, chats_store, active_title, gr.update(), "Agent 1 Working..."
         research_out, p1 = call_llm("You are Agent 1: Legal Researcher. Extract core legal issues, Indian statutes, and precedents.", input_payload, "llama-3.1-8b-instant")
         if not research_out:
             history[-1]["content"] += "\n❌ Pipeline Error: Engine unavailable."
-            yield "", history, chats_store, gr.update(), "Failed"
+            yield "", history, chats_store, active_title, gr.update(), "Failed"
             return
         history[-1]["content"] += f"✓ Research completed ({p1}).\n\n"
-        yield "", history, chats_store, gr.update(), "Agent 2 Working..."
-
-        history[-1]["content"] += "⚖️ **Agent 2 (Risk Analyst):** Evaluating procedural factors & risks...\n"
+        
+        history[-1]["content"] += "⚖️ **Agent 2 (Risk Analyst):** Evaluating procedural factors...\n"
+        yield "", history, chats_store, active_title, gr.update(), "Agent 2 Working..."
         risk_out, _ = call_llm("You are Agent 2: Risk Analyst. Identify legal risks, evidentiary hurdles, and procedural weaknesses.", f"QUERY:\n{input_payload}\nRESEARCH:\n{research_out}", "llama-3.1-8b-instant")
         history[-1]["content"] += "✓ Risk assessment completed.\n\n"
-        yield "", history, chats_store, gr.update(), "Agent 3 Synthesizing..."
-
+        
         history[-1]["content"] += "🏛️ **Agent 3 (Senior Counsel):** Drafting legal analysis...\n\n---\n\n"
-        final_out, _ = call_llm("You are Agent 3: Senior Counsel. Synthesize findings into a final legal draft using Markdown headers (ISSUE, ANALYSIS, RECOMMENDATION). End with an AI disclaimer.", f"CONTEXT:\n{input_payload}\nRESEARCH:\n{research_out}\nRISKS:\n{risk_out}", "llama-3.3-70b-versatile")
+        yield "", history, chats_store, active_title, gr.update(), "Agent 3 Synthesizing..."
+        final_out, _ = call_llm("You are Agent 3: Senior Counsel. Synthesize findings into a final legal draft using Markdown headers. End with an AI disclaimer.", f"CONTEXT:\n{input_payload}\nRESEARCH:\n{research_out}\nRISKS:\n{risk_out}", "llama-3.3-70b-versatile")
         
         for token in re.split(r'(\s+)', final_out or "Analysis failed."):
             history[-1]["content"] += token
-            yield "", history, chats_store, gr.update(), "Finalizing..."
+            yield "", history, chats_store, active_title, gr.update(), "Finalizing..."
             time.sleep(0.008)
     else:
         history.append({"role": "assistant", "content": ""})
-        yield "", history, chats_store, gr.update(), "Thinking..."
-        res_text, _ = call_llm("You are LokNayak, Senior Legal Counsel AI. Structure response using Markdown (ISSUE, ANALYSIS, RECOMMENDATION). End with AI disclaimer.", input_payload, "llama-3.3-70b-versatile")
+        yield "", history, chats_store, active_title, gr.update(), "Thinking..."
+        res_text, _ = call_llm("You are LokNayak, Senior Legal Counsel AI. Structure response using Markdown. End with AI disclaimer.", input_payload, "llama-3.3-70b-versatile")
         for token in re.split(r'(\s+)', res_text or "Analysis failed."):
             history[-1]["content"] += token
-            yield "", history, chats_store, gr.update(), "Typing..."
+            yield "", history, chats_store, active_title, gr.update(), "Typing..."
             time.sleep(0.01)
 
     chats_store[active_title] = list(history)
@@ -233,7 +250,7 @@ def process_chat(user_message, file_obj, pipeline_mode, history, chats_store, cu
         save_chat_to_cloud(user_email, active_title, list(history))
 
     elapsed = round(time.time() - start_time, 1)
-    yield "", history, chats_store, gr.update(choices=list(chats_store.keys()), value=active_title), f"⚡ Processed in {elapsed}s (Saved to Cloud ☁️)"
+    yield "", history, chats_store, active_title, gr.update(choices=list(chats_store.keys()), value=active_title), f"⚡ Processed in {elapsed}s (Saved to Cloud ☁️)"
 
 def load_past_chat(selected_title, chats_store):
     if selected_title in chats_store: 
@@ -299,6 +316,10 @@ with gr.Blocks(title="LokNayak Legal AI") as demo:
 
             cloud_chats = fetch_user_chats_from_cloud(email)
             chat_choices = list(cloud_chats.keys()) if cloud_chats else []
+            
+            # Auto-Load the most recent chat!
+            latest_title = chat_choices[0] if chat_choices else ""
+            latest_history = cloud_chats.get(latest_title, []) if latest_title else []
 
             html = f"<div class='profile-card'><div style='display:flex; align-items:center; gap:10px;'><img src='{pic}' style='width:40px; height:40px; border-radius:50%;'><div><div style='font-weight:600; font-size:0.9rem; color:#e3e3e3;'>{name}</div><div style='font-size:0.75rem; color:#a8c7fa;'>{email}</div></div></div></div>"
             
@@ -307,19 +328,23 @@ with gr.Blocks(title="LokNayak Legal AI") as demo:
                 html, 
                 gr.update(visible=True), 
                 cloud_chats, 
-                gr.update(choices=chat_choices, value=None),
-                email
+                gr.update(choices=chat_choices, value=latest_title if latest_title else None),
+                email,
+                latest_title,
+                latest_history
             )
-        return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[], value=None), ""
+        return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[], value=None), "", "", []
 
+    # Map the new Auto-Load outputs
     demo.load(
         fn=load_user_profile_and_history, 
         inputs=None, 
-        outputs=[login_btn, profile_html, logout_btn, chats_store, history_dropdown, user_email_state]
+        outputs=[login_btn, profile_html, logout_btn, chats_store, history_dropdown, user_email_state, active_title, chatbot]
     )
 
-    msg_input.submit(fn=process_chat, inputs=[msg_input, file_input, pipeline_selector, chatbot, chats_store, active_title, user_email_state], outputs=[msg_input, chatbot, chats_store, history_dropdown, status_text])
-    send_btn.click(fn=process_chat, inputs=[msg_input, file_input, pipeline_selector, chatbot, chats_store, active_title, user_email_state], outputs=[msg_input, chatbot, chats_store, history_dropdown, status_text])
+    # Output mapping fixed to hold the Active Title properly
+    msg_input.submit(fn=process_chat, inputs=[msg_input, file_input, pipeline_selector, chatbot, chats_store, active_title, user_email_state], outputs=[msg_input, chatbot, chats_store, active_title, history_dropdown, status_text])
+    send_btn.click(fn=process_chat, inputs=[msg_input, file_input, pipeline_selector, chatbot, chats_store, active_title, user_email_state], outputs=[msg_input, chatbot, chats_store, active_title, history_dropdown, status_text])
     history_dropdown.change(fn=load_past_chat, inputs=[history_dropdown, chats_store], outputs=[chatbot, active_title, status_text])
     new_chat_btn.click(fn=start_new_chat, inputs=[], outputs=[chatbot, file_input, active_title, history_dropdown, status_text])
 
