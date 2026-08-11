@@ -8,3 +8,4 @@ uvicorn
 authlib
 itsdangerous
 httpx
+firebase-admin
