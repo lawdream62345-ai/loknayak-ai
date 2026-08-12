@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════
-#  ⚖️ LOKNAYAK LEGAL AI — GEMINI UI EDITION (v4.44+ STRICT DICTS)
+#  ⚖️ LOKNAYAK LEGAL AI — GRADIO 6.0+ GEMINI UI (LIST FORMAT)
 # ═══════════════════════════════════════════════════════════════════
 
 import gradio as gr
@@ -48,18 +48,24 @@ if firebase_json_env:
 else:
     print("ℹ️ FIREBASE_CREDENTIALS_JSON not found. Running in Local Memory fallback mode.")
 
-# 🔥 THE SANITIZER: Automatically fixes old DB formats so Gradio doesn't crash
+# 🔥 THE SANITIZER: Converts any old Dictionary DB entries into Gradio 6 Lists [[User, AI]]
 def sanitize_history(history_data):
     if not history_data: return []
     clean_history = []
+    temp_user = ""
     for item in history_data:
-        # If it's already a dictionary (Modern Format)
-        if isinstance(item, dict) and 'role' in item and 'content' in item:
-            clean_history.append(item)
-        # If it's an old List format from previous versions, convert it instantly
-        elif isinstance(item, (list, tuple)) and len(item) == 2:
-            if item[0]: clean_history.append({"role": "user", "content": str(item[0])})
-            if item[1]: clean_history.append({"role": "assistant", "content": str(item[1])})
+        # If it's already the correct list format [[user, bot]]
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            clean_history.append([str(item[0]) if item[0] else "", str(item[1]) if item[1] else ""])
+        # If it's the old dictionary format, convert it
+        elif isinstance(item, dict):
+            role = item.get("role", "")
+            content = item.get("content", "")
+            if role == "user":
+                temp_user = content
+            elif role in ["assistant", "bot", "LOKNAYAK"]:
+                clean_history.append([temp_user, content])
+                temp_user = ""
     return clean_history
 
 def save_chat_to_cloud(email, title, history):
@@ -94,7 +100,6 @@ def fetch_user_chats_from_cloud(email):
             chat_data.append({"title": title, "history": history, "timestamp": timestamp})
         
         chat_data.sort(key=lambda x: x["timestamp"], reverse=True)
-        # Run the sanitizer on every fetched chat to ensure zero crashes
         user_chats = {item["title"]: sanitize_history(item["history"]) for item in chat_data}
         return user_chats
     except Exception as e:
@@ -192,19 +197,19 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
     doc_text = parse_file(file_path) if file_path else ""
     if len(doc_text) > 20000: doc_text = doc_text[:20000]
 
+    # Rebuild Memory Context using Gradio 6 List format
     memory_context = ""
     if history:
         memory_context = "--- PREVIOUS CONTEXT ---\n"
-        for msg in history:
-            if isinstance(msg, dict):
-                role_str = "USER" if msg.get("role") == "user" else "LOKNAYAK"
-                memory_context += f"{role_str}: {msg.get('content', '')}\n\n"
+        for user_msg, bot_msg in history:
+            if user_msg: memory_context += f"USER: {user_msg}\n\n"
+            if bot_msg: memory_context += f"LOKNAYAK: {bot_msg}\n\n"
 
     display_msg = user_message
     if file_path: display_msg = f"📎 *[Document Attached]*\n\n" + user_message
 
-    # Append strictly using Dictionary format
-    history.append({"role": "user", "content": display_msg})
+    # Append strictly using standard Lists
+    history.append([display_msg, ""])
     
     active_title = current_title if (current_title and current_title != "New Case") else (user_message[:30] + "..." if len(user_message) > 30 else "Doc Analysis")
     
@@ -215,36 +220,33 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
     input_payload = f"{memory_context}\n--- CURRENT USER QUERY ---\n{user_message}\n"
     if doc_text: input_payload += f"\n--- ATTACHED DOC CONTEXT ---\n{doc_text}\n"
 
-    # Append Assistant placeholder strictly using Dictionary format
-    history.append({"role": "assistant", "content": ""})
-
     if pipeline_mode == "Multi-Agent Pipeline (Deep)":
-        history[-1]["content"] = "🤖 **Pipeline Initiated...**\n\n"
+        history[-1][1] = "🤖 **Pipeline Initiated...**\n\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Working..."
 
-        history[-1]["content"] += "🔍 **Agent 1:** Analyzing statutes...\n"
+        history[-1][1] += "🔍 **Agent 1:** Analyzing statutes...\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Agent 1..."
         research_out, _ = call_llm("You are Agent 1: Researcher. Extract core legal issues.", input_payload, "llama-3.1-8b-instant")
-        history[-1]["content"] += "✓ Research complete.\n\n"
+        history[-1][1] += "✓ Research complete.\n\n"
         
-        history[-1]["content"] += "⚖️ **Agent 2:** Evaluating risks...\n"
+        history[-1][1] += "⚖️ **Agent 2:** Evaluating risks...\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Agent 2..."
         risk_out, _ = call_llm("You are Agent 2: Risk Analyst. Identify legal risks.", f"QUERY:\n{input_payload}\nRESEARCH:\n{research_out}", "llama-3.1-8b-instant")
-        history[-1]["content"] += "✓ Risk assessment complete.\n\n"
+        history[-1][1] += "✓ Risk assessment complete.\n\n"
         
-        history[-1]["content"] += "🏛️ **Agent 3:** Drafting analysis...\n\n---\n\n"
+        history[-1][1] += "🏛️ **Agent 3:** Drafting analysis...\n\n---\n\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Agent 3..."
         final_out, _ = call_llm("You are Agent 3: Senior Counsel. Synthesize into Markdown.", f"CONTEXT:\n{input_payload}\nRESEARCH:\n{research_out}\nRISKS:\n{risk_out}", "llama-3.3-70b-versatile")
         
         for token in re.split(r'(\s+)', final_out or "Analysis failed."):
-            history[-1]["content"] += token
+            history[-1][1] += token
             yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Finalizing..."
             time.sleep(0.008)
     else:
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Thinking..."
         res_text, _ = call_llm("You are LokNayak AI. Use Markdown.", input_payload, "llama-3.3-70b-versatile")
         for token in re.split(r'(\s+)', res_text or "Analysis failed."):
-            history[-1]["content"] += token
+            history[-1][1] += token
             yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Typing..."
             time.sleep(0.01)
 
@@ -300,7 +302,11 @@ footer { display: none !important; }
 #model-selector .wrap { border: none !important; background: transparent !important; box-shadow: none !important; }
 """
 
-with gr.Blocks(title="LokNayak Legal AI", css=custom_css) as demo:
+# Removed css=custom_css from the Blocks constructor to fix the Gradio 6 warning
+with gr.Blocks(title="LokNayak Legal AI") as demo:
+    # Inject CSS manually to bypass the new Gradio 6 strict constructor
+    gr.HTML(f"<style>{custom_css}</style>")
+    
     chats_store = gr.State({})
     active_title = gr.State("")
     user_email_state = gr.State("")
@@ -320,8 +326,8 @@ with gr.Blocks(title="LokNayak Legal AI", css=custom_css) as demo:
         logout_btn = gr.Button("Log Out", variant="secondary", link="/logout", visible=False)
 
     with gr.Column():
-        # WE MUST USE type="messages" to match modern Gradio Requirements natively!
-        chatbot = gr.Chatbot(label="", height=550, show_label=False, avatar_images=(None, "🏛️"), type="messages", elem_id="chatbot")
+        # type="messages" completely removed. Now universally compatible.
+        chatbot = gr.Chatbot(label="", height=550, show_label=False, avatar_images=(None, "🏛️"), elem_id="chatbot")
         
         file_display = gr.Markdown("", visible=False)
         
