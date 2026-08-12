@@ -176,17 +176,21 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
     doc_text = parse_file(file_path) if file_path else ""
     if len(doc_text) > 20000: doc_text = doc_text[:20000]
 
+    # Rebuild Memory Context using Dictionary format
     memory_context = ""
     if history:
         memory_context = "--- PREVIOUS CONTEXT ---\n"
-        for u_msg, b_msg in history:
-            if u_msg: memory_context += f"USER: {u_msg}\n\n"
-            if b_msg: memory_context += f"LOKNAYAK: {b_msg}\n\n"
+        for msg in history:
+            if isinstance(msg, dict):
+                role_str = "USER" if msg.get("role") == "user" else "LOKNAYAK"
+                memory_context += f"{role_str}: {msg.get('content', '')}\n\n"
 
     display_msg = user_message
     if file_path: display_msg = f"📎 *[Document Attached]*\n\n" + user_message
 
-    history.append([display_msg, ""])
+    # Append user message in Dictionary format
+    history.append({"role": "user", "content": display_msg})
+    
     active_title = current_title if (current_title and current_title != "New Case") else (user_message[:30] + "..." if len(user_message) > 30 else "Doc Analysis")
     
     chats_store[active_title] = list(history)
@@ -196,33 +200,36 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
     input_payload = f"{memory_context}\n--- CURRENT USER QUERY ---\n{user_message}\n"
     if doc_text: input_payload += f"\n--- ATTACHED DOC CONTEXT ---\n{doc_text}\n"
 
+    # Append blank assistant message in Dictionary format
+    history.append({"role": "assistant", "content": ""})
+
     if pipeline_mode == "Multi-Agent Pipeline (Deep)":
-        history[-1][1] = "🤖 **Pipeline Initiated...**\n\n"
+        history[-1]["content"] = "🤖 **Pipeline Initiated...**\n\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Working..."
 
-        history[-1][1] += "🔍 **Agent 1:** Analyzing statutes...\n"
+        history[-1]["content"] += "🔍 **Agent 1:** Analyzing statutes...\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Agent 1..."
         research_out, _ = call_llm("You are Agent 1: Researcher. Extract core legal issues.", input_payload, "llama-3.1-8b-instant")
-        history[-1][1] += "✓ Research complete.\n\n"
+        history[-1]["content"] += "✓ Research complete.\n\n"
         
-        history[-1][1] += "⚖️ **Agent 2:** Evaluating risks...\n"
+        history[-1]["content"] += "⚖️ **Agent 2:** Evaluating risks...\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Agent 2..."
         risk_out, _ = call_llm("You are Agent 2: Risk Analyst. Identify legal risks.", f"QUERY:\n{input_payload}\nRESEARCH:\n{research_out}", "llama-3.1-8b-instant")
-        history[-1][1] += "✓ Risk assessment complete.\n\n"
+        history[-1]["content"] += "✓ Risk assessment complete.\n\n"
         
-        history[-1][1] += "🏛️ **Agent 3:** Drafting analysis...\n\n---\n\n"
+        history[-1]["content"] += "🏛️ **Agent 3:** Drafting analysis...\n\n---\n\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Agent 3..."
         final_out, _ = call_llm("You are Agent 3: Senior Counsel. Synthesize into Markdown.", f"CONTEXT:\n{input_payload}\nRESEARCH:\n{research_out}\nRISKS:\n{risk_out}", "llama-3.3-70b-versatile")
         
         for token in re.split(r'(\s+)', final_out or "Analysis failed."):
-            history[-1][1] += token
+            history[-1]["content"] += token
             yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Finalizing..."
             time.sleep(0.008)
     else:
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Thinking..."
         res_text, _ = call_llm("You are LokNayak AI. Use Markdown.", input_payload, "llama-3.3-70b-versatile")
         for token in re.split(r'(\s+)', res_text or "Analysis failed."):
-            history[-1][1] += token
+            history[-1]["content"] += token
             yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Typing..."
             time.sleep(0.01)
 
@@ -264,7 +271,7 @@ footer { display: none !important; }
 #history-list { border: none !important; background: transparent !important; box-shadow: none !important; }
 #history-list label { padding: 10px !important; border-radius: 8px !important; cursor: pointer; transition: 0.2s; margin-bottom: 2px; }
 #history-list label:hover { background: #2b2c2e !important; }
-#history-list input[type="radio"] { display: none !important; } /* Hides the radio circle */
+#history-list input[type="radio"] { display: none !important; }
 
 /* 3. Borderless Chatbot (Gemini Style) */
 #chatbot { border: none !important; background: transparent !important; box-shadow: none !important; }
@@ -295,7 +302,6 @@ with gr.Blocks(title="LokNayak Legal AI", css=custom_css) as demo:
         new_chat_btn = gr.Button("➕ New Chat", elem_classes="new-chat-btn")
         
         gr.Markdown("### 📜 Past Cases")
-        # History is now a sleek clickable sidebar list instead of a dropdown!
         history_list = gr.Radio(choices=[], label="", container=False, interactive=True, elem_id="history-list")
         
         gr.Markdown("---")
@@ -305,20 +311,15 @@ with gr.Blocks(title="LokNayak Legal AI", css=custom_css) as demo:
         logout_btn = gr.Button("Log Out", variant="secondary", link="/logout", visible=False)
 
     with gr.Column():
-        chatbot = gr.Chatbot(label="", height=550, show_label=False, avatar_images=(None, "🏛️"), elem_id="chatbot")
+        # Added type="messages" to strictly enforce the correct UI dictionary format
+        chatbot = gr.Chatbot(label="", height=550, show_label=False, avatar_images=(None, "🏛️"), type="messages", elem_id="chatbot")
         
-        file_display = gr.Markdown("", visible=False) # Shows file name when attached
+        file_display = gr.Markdown("", visible=False)
         
-        # New Gemini-Style Input Row
         with gr.Row(elem_id="input-container"):
-            # ➕ Plus Button for files
             file_btn = gr.UploadButton("➕", file_types=[".pdf", ".docx"], elem_id="upload-btn")
-            
             msg_input = gr.Textbox(placeholder="Ask a legal question...", show_label=False, container=False, scale=6, elem_id="msg-input")
-            
-            # Model Selector next to the text box
             pipeline_selector = gr.Dropdown(choices=["Fast Mode (Single AI)", "Multi-Agent Pipeline (Deep)"], value="Multi-Agent Pipeline (Deep)", show_label=False, container=False, scale=2, elem_id="model-selector")
-            
             send_btn = gr.Button("🚀", variant="primary", scale=1, elem_id="send-btn")
 
     status_text = gr.HTML("<div style='text-align:center; font-size:0.75rem; color:#8e918f; margin-top:8px;'>Outputs must be reviewed by an attorney.</div>")
@@ -344,7 +345,6 @@ with gr.Blocks(title="LokNayak Legal AI", css=custom_css) as demo:
             )
         return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[], value=None), "", "", []
 
-    # Upload Handler
     file_btn.upload(fn=handle_upload, inputs=[file_btn], outputs=[uploaded_file_state, file_display])
 
     demo.load(fn=load_user_profile_and_history, inputs=None, outputs=[login_btn, profile_html, logout_btn, chats_store, history_list, user_email_state, active_title, chatbot])
