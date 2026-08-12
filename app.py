@@ -41,7 +41,8 @@ if firebase_json_env:
         cred_dict = json.loads(firebase_json_env)
         cred = credentials.Certificate(cred_dict)
         firebase_admin.initialize_app(cred)
-        db = firestore.client()
+        # Connected using the custom 'default' database ID you created
+        db = firestore.client(database_id="default")
         print("✅ Firestore Cloud Database Connected Successfully!")
     except Exception as e:
         print("⚠️ Firestore Initialization Warning:", e)
@@ -99,7 +100,7 @@ def fetch_user_chats_from_cloud(email):
         return {}
 
 # ═══════════════════════════════════════════════════════════════════
-# 2. FASTAPI & GOOGLE OAUTH SETUP
+# 2. FASTAPI & GOOGLE OAUTH SETUP (BULLETPROOF ROUTING)
 # ═══════════════════════════════════════════════════════════════════
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key="loknayak-secure-key-2026")
@@ -113,13 +114,14 @@ oauth.register(
     client_kwargs={'scope': 'openid email profile'},
 )
 
-@app.get("/login")
+# 🔥 Accepts both GET and POST to prevent 405 errors across all devices
+@app.api_route("/login", methods=["GET", "POST"])
 async def login(request: Request):
     redirect_uri = request.url_for('auth')
     if "onrender.com" in str(redirect_uri): redirect_uri = str(redirect_uri).replace("http://", "https://")
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
-@app.get("/auth")
+@app.api_route("/auth", methods=["GET", "POST"])
 async def auth(request: Request):
     try:
         token = await oauth.google.authorize_access_token(request)
@@ -129,7 +131,7 @@ async def auth(request: Request):
         pass
     return RedirectResponse(url='/')
 
-@app.get("/logout")
+@app.api_route("/logout", methods=["GET", "POST"])
 async def logout(request: Request):
     request.session.pop('user', None)
     return RedirectResponse(url='/')
@@ -263,17 +265,16 @@ def handle_upload(file):
 # 4. GRADIO UI LAYOUT & CSS (GEMINI IMMERSIVE STYLE)
 # ═══════════════════════════════════════════════════════════════════
 
-# This CSS strips all borders, margins, and backgrounds to create a seamless floating interface
 css_code = """
 /* 1. Global Reset & Background (Midnight Blue/Black) */
 :root { --bg-main: #0E1117; --sidebar-bg: #1A1C23; --card-bg: #1E1F20; --text-primary: #E3E3E3; --accent: #A8C7FA; }
 body, .gradio-container { background-color: var(--bg-main) !important; color: var(--text-primary) !important; font-family: 'Google Sans', 'Inter', sans-serif !important; margin: 0 !important; padding: 0 !important; }
-footer { display: none !important; } /* Hide Gradio Footer */
+footer { display: none !important; }
 
 /* 2. Strip ALL Gradio Box Artifacts */
 .panel, .contain, .box, .wrap, .gr-box, .gr-panel, .form { border: none !important; box-shadow: none !important; background: transparent !important; margin: 0 !important; }
 #chatbot { border: none !important; background: transparent !important; box-shadow: none !important; }
-.chatbot-container { padding-bottom: 80px !important; } /* Space for floating input */
+.chatbot-container { padding-bottom: 80px !important; }
 
 /* 3. The Sidebar Styling */
 .gr-sidebar { background-color: var(--sidebar-bg) !important; border-right: 1px solid #2B2C2E !important; padding: 15px !important; height: 100vh !important; }
@@ -281,7 +282,7 @@ footer { display: none !important; } /* Hide Gradio Footer */
 .new-chat-btn button { background: transparent !important; color: #fff !important; border: 1px solid #3c4043 !important; border-radius: 20px !important; font-weight: 500 !important; padding: 10px 15px !important; transition: 0.2s; text-align: left !important; width: 100%; display: flex; align-items: center; gap: 10px; }
 .new-chat-btn button:hover { background: #2b2c2e !important; }
 
-/* Sidebar History List (Like Gemini's "Recent") */
+/* Sidebar History List */
 #history-list { border: none !important; background: transparent !important; box-shadow: none !important; padding: 0 !important; }
 #history-list label { padding: 10px !important; border-radius: 8px !important; cursor: pointer; transition: 0.2s; margin-bottom: 2px; font-size: 0.9rem; color: #C4C7C5 !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #history-list label:hover { background: #2B2C2E !important; color: #fff !important; }
@@ -289,23 +290,25 @@ footer { display: none !important; } /* Hide Gradio Footer */
 
 /* 4. Chat Bubbles (Gemini Style) */
 .message-wrap .message { border: none !important; box-shadow: none !important; background: transparent !important; font-size: 1.05rem !important; color: #E3E3E3 !important; line-height: 1.6; }
-/* AI Messages: Fully transparent */
 .message-wrap .bot, .message-wrap .assistant { padding: 12px 0 !important; }
-/* User Messages: Gray rounded bubble on the right */
 .message-wrap .user { background: var(--card-bg) !important; border-radius: 24px !important; padding: 12px 20px !important; margin-bottom: 10px; max-width: 75%; float: right; clear: both; }
 
-/* 5. The Floating Input Bar (Fixed to bottom, centered) */
+/* 5. The Floating Input Bar */
 #input-container { background: var(--card-bg); border-radius: 30px; padding: 8px 16px; display: flex; align-items: center; width: 100%; max-width: 800px; margin: 0 auto !important; position: sticky; bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid #3c4043 !important; z-index: 100; }
 #msg-input textarea { background: transparent !important; border: none !important; box-shadow: none !important; font-size: 1rem !important; padding: 10px !important; color: #E3E3E3 !important; max-height: 150px; overflow-y: auto; }
 #upload-btn, #send-btn { background: transparent !important; border: none !important; font-size: 1.3rem; padding: 0 !important; width: 40px !important; height: 40px !important; color: #A8C7FA !important; cursor: pointer; transition: 0.2s; }
 #upload-btn:hover, #send-btn:hover { background: #2B2C2E !important; border-radius: 50% !important; }
 
-/* Model Dropdown inside the input bar */
+/* Dropdown */
 #model-selector { border: none !important; background: transparent !important; box-shadow: none !important; min-width: 150px; }
 #model-selector * { border: none !important; background: transparent !important; box-shadow: none !important; color: #8E918F !important; font-size: 0.85rem !important; font-weight: 500; }
-
-/* Hide redundant UI labels */
 .form { background: transparent !important; }
+
+/* 🔥 BULLETPROOF HTML LINKS FOR LOGIN/LOGOUT 🔥 */
+.login-link { display: block; text-align: center; background: #A8C7FA; color: #131314 !important; padding: 10px; border-radius: 20px; text-decoration: none; font-weight: 600; margin-top: 10px; transition: 0.2s; }
+.login-link:hover { background: #d3e3fd; }
+.logout-link { display: block; text-align: center; background: #3C4043; color: #E3E3E3 !important; padding: 8px; border-radius: 20px; text-decoration: none; font-weight: 500; margin-top: 10px; transition: 0.2s; }
+.logout-link:hover { background: #5f6368; }
 """
 
 with gr.Blocks(title="LokNayak Legal AI", fill_width=True) as demo:
@@ -315,7 +318,6 @@ with gr.Blocks(title="LokNayak Legal AI", fill_width=True) as demo:
     uploaded_file_state = gr.State(None)
 
     with gr.Row():
-        # LEFT PANEL: The Sidebar
         with gr.Column(scale=2, elem_classes="gr-sidebar", min_width=250):
             gr.HTML("<div class='header-bar'><h1>✨ LokNayak</h1></div>")
             new_chat_btn = gr.Button("✏️ New chat", elem_classes="new-chat-btn")
@@ -324,18 +326,17 @@ with gr.Blocks(title="LokNayak Legal AI", fill_width=True) as demo:
             history_list = gr.Radio(choices=[], label="", container=False, interactive=True, elem_id="history-list")
             
             gr.Markdown("<br><span style='color: #8E918F; font-size: 0.8rem; font-weight: 600;'>Account</span>")
-            login_btn = gr.Button("🌐 Sign in with Google", variant="primary", link="/login")
+            
+            # 🔥 Replaced buggy Gradio Buttons with raw HTML native browser links
+            login_html = gr.HTML('<a href="/login" class="login-link">🌐 Sign in with Google</a>')
             profile_html = gr.HTML("")
-            logout_btn = gr.Button("Log Out", variant="secondary", link="/logout", visible=False)
+            logout_html = gr.HTML('<a href="/logout" class="logout-link">Log Out</a>', visible=False)
 
-        # RIGHT PANEL: The Main Canvas
         with gr.Column(scale=9, elem_classes="chatbot-container"):
-            # The borderless Chatbot
             chatbot = gr.Chatbot(label="", height="calc(100vh - 120px)", show_label=False, avatar_images=(None, "✨"), elem_id="chatbot")
             
             file_display = gr.Markdown("", visible=False)
             
-            # The Floating Input Row at the bottom
             with gr.Row(elem_id="input-container"):
                 file_btn = gr.UploadButton("➕", file_types=[".pdf", ".docx"], elem_id="upload-btn")
                 msg_input = gr.Textbox(placeholder="Ask LokNayak...", show_label=False, container=False, scale=6, elem_id="msg-input")
@@ -355,7 +356,6 @@ with gr.Blocks(title="LokNayak Legal AI", fill_width=True) as demo:
             latest_title = chat_choices[0] if chat_choices else ""
             latest_history = cloud_chats.get(latest_title, []) if latest_title else []
 
-            # Profile Card tailored for Sidebar
             html = f"<div style='display:flex; align-items:center; gap:10px; padding: 10px; border-radius: 8px; cursor: pointer;' onmouseover=\"this.style.background='#2b2c2e'\" onmouseout=\"this.style.background='transparent'\"><img src='{pic}' style='width:32px; height:32px; border-radius:50%;'><div><div style='font-weight:500; font-size:0.85rem; color:#e3e3e3;'>{name}</div></div></div>"
             
             return (
@@ -367,7 +367,7 @@ with gr.Blocks(title="LokNayak Legal AI", fill_width=True) as demo:
 
     file_btn.upload(fn=handle_upload, inputs=[file_btn], outputs=[uploaded_file_state, file_display])
 
-    demo.load(fn=load_user_profile_and_history, inputs=None, outputs=[login_btn, profile_html, logout_btn, chats_store, history_list, user_email_state, active_title, chatbot])
+    demo.load(fn=load_user_profile_and_history, inputs=None, outputs=[login_html, profile_html, logout_html, chats_store, history_list, user_email_state, active_title, chatbot])
     
     chat_inputs = [msg_input, uploaded_file_state, pipeline_selector, chatbot, chats_store, active_title, user_email_state]
     chat_outputs = [msg_input, uploaded_file_state, file_display, chatbot, chats_store, active_title, history_list]
@@ -384,13 +384,12 @@ with gr.Blocks(title="LokNayak Legal AI", fill_width=True) as demo:
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key="loknayak-secure-key-2026")
 
-# Gradio 6 dictates that CSS must be passed natively to the launch command via mount_gradio_app
 app = gr.mount_gradio_app(
     app, 
     demo.queue(), 
     path="/",
     allowed_paths=["/"],
-    **{"css": css_code} # Directly injects the CSS to override the core Gradio engine
+    **{"css": css_code}
 )
 
 if __name__ == "__main__":
