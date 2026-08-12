@@ -1,4 +1,4 @@
-gradio
+gradio>=4.44.0
 requests
 PyPDF2
 python-docx
