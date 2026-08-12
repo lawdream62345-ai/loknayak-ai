@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════
-#  ⚖️ LOKNAYAK LEGAL AI — GEMINI UI EDITION (FIRESTORE CLOUD SYNC)
+#  ⚖️ LOKNAYAK LEGAL AI — GEMINI UI EDITION (UNIVERSAL COMPATIBILITY)
 # ═══════════════════════════════════════════════════════════════════
 
 import gradio as gr
@@ -176,20 +176,23 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
     doc_text = parse_file(file_path) if file_path else ""
     if len(doc_text) > 20000: doc_text = doc_text[:20000]
 
-    # Rebuild Memory Context using Dictionary format
+    # Rebuild Memory Context (Supports both legacy dicts and standard lists)
     memory_context = ""
     if history:
         memory_context = "--- PREVIOUS CONTEXT ---\n"
-        for msg in history:
-            if isinstance(msg, dict):
-                role_str = "USER" if msg.get("role") == "user" else "LOKNAYAK"
-                memory_context += f"{role_str}: {msg.get('content', '')}\n\n"
+        for item in history:
+            if isinstance(item, dict):
+                role_str = "USER" if item.get("role") == "user" else "LOKNAYAK"
+                memory_context += f"{role_str}: {item.get('content', '')}\n\n"
+            elif isinstance(item, list) or isinstance(item, tuple):
+                if item[0]: memory_context += f"USER: {item[0]}\n\n"
+                if item[1]: memory_context += f"LOKNAYAK: {item[1]}\n\n"
 
     display_msg = user_message
     if file_path: display_msg = f"📎 *[Document Attached]*\n\n" + user_message
 
-    # Append user message in Dictionary format
-    history.append({"role": "user", "content": display_msg})
+    # Universal Gradio format: List of Lists
+    history.append([display_msg, ""])
     
     active_title = current_title if (current_title and current_title != "New Case") else (user_message[:30] + "..." if len(user_message) > 30 else "Doc Analysis")
     
@@ -200,36 +203,33 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
     input_payload = f"{memory_context}\n--- CURRENT USER QUERY ---\n{user_message}\n"
     if doc_text: input_payload += f"\n--- ATTACHED DOC CONTEXT ---\n{doc_text}\n"
 
-    # Append blank assistant message in Dictionary format
-    history.append({"role": "assistant", "content": ""})
-
     if pipeline_mode == "Multi-Agent Pipeline (Deep)":
-        history[-1]["content"] = "🤖 **Pipeline Initiated...**\n\n"
+        history[-1][1] = "🤖 **Pipeline Initiated...**\n\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Working..."
 
-        history[-1]["content"] += "🔍 **Agent 1:** Analyzing statutes...\n"
+        history[-1][1] += "🔍 **Agent 1:** Analyzing statutes...\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Agent 1..."
         research_out, _ = call_llm("You are Agent 1: Researcher. Extract core legal issues.", input_payload, "llama-3.1-8b-instant")
-        history[-1]["content"] += "✓ Research complete.\n\n"
+        history[-1][1] += "✓ Research complete.\n\n"
         
-        history[-1]["content"] += "⚖️ **Agent 2:** Evaluating risks...\n"
+        history[-1][1] += "⚖️ **Agent 2:** Evaluating risks...\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Agent 2..."
         risk_out, _ = call_llm("You are Agent 2: Risk Analyst. Identify legal risks.", f"QUERY:\n{input_payload}\nRESEARCH:\n{research_out}", "llama-3.1-8b-instant")
-        history[-1]["content"] += "✓ Risk assessment complete.\n\n"
+        history[-1][1] += "✓ Risk assessment complete.\n\n"
         
-        history[-1]["content"] += "🏛️ **Agent 3:** Drafting analysis...\n\n---\n\n"
+        history[-1][1] += "🏛️ **Agent 3:** Drafting analysis...\n\n---\n\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Agent 3..."
         final_out, _ = call_llm("You are Agent 3: Senior Counsel. Synthesize into Markdown.", f"CONTEXT:\n{input_payload}\nRESEARCH:\n{research_out}\nRISKS:\n{risk_out}", "llama-3.3-70b-versatile")
         
         for token in re.split(r'(\s+)', final_out or "Analysis failed."):
-            history[-1]["content"] += token
+            history[-1][1] += token
             yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Finalizing..."
             time.sleep(0.008)
     else:
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Thinking..."
         res_text, _ = call_llm("You are LokNayak AI. Use Markdown.", input_payload, "llama-3.3-70b-versatile")
         for token in re.split(r'(\s+)', res_text or "Analysis failed."):
-            history[-1]["content"] += token
+            history[-1][1] += token
             yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Typing..."
             time.sleep(0.01)
 
@@ -311,8 +311,8 @@ with gr.Blocks(title="LokNayak Legal AI", css=custom_css) as demo:
         logout_btn = gr.Button("Log Out", variant="secondary", link="/logout", visible=False)
 
     with gr.Column():
-        # Added type="messages" to strictly enforce the correct UI dictionary format
-        chatbot = gr.Chatbot(label="", height=550, show_label=False, avatar_images=(None, "🏛️"), type="messages", elem_id="chatbot")
+        # type="messages" HAS BEEN REMOVED! It will now work safely on any server.
+        chatbot = gr.Chatbot(label="", height=550, show_label=False, avatar_images=(None, "🏛️"), elem_id="chatbot")
         
         file_display = gr.Markdown("", visible=False)
         
