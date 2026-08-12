@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════
-#  ⚖️ LOKNAYAK LEGAL AI — GEMINI UI EDITION (UNIVERSAL COMPATIBILITY)
+#  ⚖️ LOKNAYAK LEGAL AI — GEMINI UI EDITION (v4.44+ STRICT DICTS)
 # ═══════════════════════════════════════════════════════════════════
 
 import gradio as gr
@@ -48,6 +48,20 @@ if firebase_json_env:
 else:
     print("ℹ️ FIREBASE_CREDENTIALS_JSON not found. Running in Local Memory fallback mode.")
 
+# 🔥 THE SANITIZER: Automatically fixes old DB formats so Gradio doesn't crash
+def sanitize_history(history_data):
+    if not history_data: return []
+    clean_history = []
+    for item in history_data:
+        # If it's already a dictionary (Modern Format)
+        if isinstance(item, dict) and 'role' in item and 'content' in item:
+            clean_history.append(item)
+        # If it's an old List format from previous versions, convert it instantly
+        elif isinstance(item, (list, tuple)) and len(item) == 2:
+            if item[0]: clean_history.append({"role": "user", "content": str(item[0])})
+            if item[1]: clean_history.append({"role": "assistant", "content": str(item[1])})
+    return clean_history
+
 def save_chat_to_cloud(email, title, history):
     if not db or not email or not title:
         return
@@ -62,7 +76,7 @@ def save_chat_to_cloud(email, title, history):
             "updated_at": firestore.SERVER_TIMESTAMP
         }, merge=True)
     except Exception as e:
-        pass
+        print(f"Cloud Save Error: {e}")
 
 def fetch_user_chats_from_cloud(email):
     if not db or not email: return {}
@@ -80,9 +94,11 @@ def fetch_user_chats_from_cloud(email):
             chat_data.append({"title": title, "history": history, "timestamp": timestamp})
         
         chat_data.sort(key=lambda x: x["timestamp"], reverse=True)
-        user_chats = {item["title"]: item["history"] for item in chat_data}
+        # Run the sanitizer on every fetched chat to ensure zero crashes
+        user_chats = {item["title"]: sanitize_history(item["history"]) for item in chat_data}
         return user_chats
     except Exception as e:
+        print(f"Cloud Fetch Error: {e}")
         return {}
 
 # ═══════════════════════════════════════════════════════════════════
@@ -176,23 +192,19 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
     doc_text = parse_file(file_path) if file_path else ""
     if len(doc_text) > 20000: doc_text = doc_text[:20000]
 
-    # Rebuild Memory Context (Supports both legacy dicts and standard lists)
     memory_context = ""
     if history:
         memory_context = "--- PREVIOUS CONTEXT ---\n"
-        for item in history:
-            if isinstance(item, dict):
-                role_str = "USER" if item.get("role") == "user" else "LOKNAYAK"
-                memory_context += f"{role_str}: {item.get('content', '')}\n\n"
-            elif isinstance(item, list) or isinstance(item, tuple):
-                if item[0]: memory_context += f"USER: {item[0]}\n\n"
-                if item[1]: memory_context += f"LOKNAYAK: {item[1]}\n\n"
+        for msg in history:
+            if isinstance(msg, dict):
+                role_str = "USER" if msg.get("role") == "user" else "LOKNAYAK"
+                memory_context += f"{role_str}: {msg.get('content', '')}\n\n"
 
     display_msg = user_message
     if file_path: display_msg = f"📎 *[Document Attached]*\n\n" + user_message
 
-    # Universal Gradio format: List of Lists
-    history.append([display_msg, ""])
+    # Append strictly using Dictionary format
+    history.append({"role": "user", "content": display_msg})
     
     active_title = current_title if (current_title and current_title != "New Case") else (user_message[:30] + "..." if len(user_message) > 30 else "Doc Analysis")
     
@@ -203,33 +215,36 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
     input_payload = f"{memory_context}\n--- CURRENT USER QUERY ---\n{user_message}\n"
     if doc_text: input_payload += f"\n--- ATTACHED DOC CONTEXT ---\n{doc_text}\n"
 
+    # Append Assistant placeholder strictly using Dictionary format
+    history.append({"role": "assistant", "content": ""})
+
     if pipeline_mode == "Multi-Agent Pipeline (Deep)":
-        history[-1][1] = "🤖 **Pipeline Initiated...**\n\n"
+        history[-1]["content"] = "🤖 **Pipeline Initiated...**\n\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Working..."
 
-        history[-1][1] += "🔍 **Agent 1:** Analyzing statutes...\n"
+        history[-1]["content"] += "🔍 **Agent 1:** Analyzing statutes...\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Agent 1..."
         research_out, _ = call_llm("You are Agent 1: Researcher. Extract core legal issues.", input_payload, "llama-3.1-8b-instant")
-        history[-1][1] += "✓ Research complete.\n\n"
+        history[-1]["content"] += "✓ Research complete.\n\n"
         
-        history[-1][1] += "⚖️ **Agent 2:** Evaluating risks...\n"
+        history[-1]["content"] += "⚖️ **Agent 2:** Evaluating risks...\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Agent 2..."
         risk_out, _ = call_llm("You are Agent 2: Risk Analyst. Identify legal risks.", f"QUERY:\n{input_payload}\nRESEARCH:\n{research_out}", "llama-3.1-8b-instant")
-        history[-1][1] += "✓ Risk assessment complete.\n\n"
+        history[-1]["content"] += "✓ Risk assessment complete.\n\n"
         
-        history[-1][1] += "🏛️ **Agent 3:** Drafting analysis...\n\n---\n\n"
+        history[-1]["content"] += "🏛️ **Agent 3:** Drafting analysis...\n\n---\n\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Agent 3..."
         final_out, _ = call_llm("You are Agent 3: Senior Counsel. Synthesize into Markdown.", f"CONTEXT:\n{input_payload}\nRESEARCH:\n{research_out}\nRISKS:\n{risk_out}", "llama-3.3-70b-versatile")
         
         for token in re.split(r'(\s+)', final_out or "Analysis failed."):
-            history[-1][1] += token
+            history[-1]["content"] += token
             yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Finalizing..."
             time.sleep(0.008)
     else:
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Thinking..."
         res_text, _ = call_llm("You are LokNayak AI. Use Markdown.", input_payload, "llama-3.3-70b-versatile")
         for token in re.split(r'(\s+)', res_text or "Analysis failed."):
-            history[-1][1] += token
+            history[-1]["content"] += token
             yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Typing..."
             time.sleep(0.01)
 
@@ -239,7 +254,8 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
     yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(choices=list(chats_store.keys()), value=active_title), f"⚡ Done in {round(time.time() - start_time, 1)}s"
 
 def load_past_chat(selected_title, chats_store):
-    if selected_title in chats_store: return chats_store[selected_title], selected_title, "Loaded chat"
+    if selected_title in chats_store: 
+        return sanitize_history(chats_store[selected_title]), selected_title, "Loaded chat"
     return [], "", "Ready"
 
 def start_new_chat():
@@ -253,40 +269,33 @@ def handle_upload(file):
 # 4. GRADIO UI LAYOUT (GEMINI STYLE)
 # ═══════════════════════════════════════════════════════════════════
 custom_css = """
-/* Core Backgrounds */
 :root { --bg-main: #131314; --card-bg: #1e1f20; --text-primary: #e3e3e3; --accent: #a8c7fa; }
 body, .gradio-container { background-color: var(--bg-main) !important; color: var(--text-primary) !important; font-family: 'Google Sans', 'Inter', sans-serif !important; }
 .gradio-container { max-width: 1200px !important; margin: 0 auto !important; }
 
-/* Hide Footer */
 footer { display: none !important; }
 
-/* 1. Sidebar Elements */
 .header-bar h1 { font-size: 1.6rem; font-weight: 600; background: linear-gradient(135deg, #a8c7fa, #d3e3fd); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0; }
 .new-chat-btn button { background: #1e1f20 !important; color: #a8c7fa !important; border: none !important; border-radius: 20px !important; font-weight: 600 !important; padding: 10px !important; transition: 0.2s;}
 .new-chat-btn button:hover { background: #2b2c2e !important; }
 .profile-card { background: #1e1f20; border-radius: 12px; padding: 12px; margin-top: 10px; border: none; }
 
-/* 2. The History List (Replaces Dropdown) */
 #history-list { border: none !important; background: transparent !important; box-shadow: none !important; }
 #history-list label { padding: 10px !important; border-radius: 8px !important; cursor: pointer; transition: 0.2s; margin-bottom: 2px; }
 #history-list label:hover { background: #2b2c2e !important; }
 #history-list input[type="radio"] { display: none !important; }
 
-/* 3. Borderless Chatbot (Gemini Style) */
 #chatbot { border: none !important; background: transparent !important; box-shadow: none !important; }
 .message-wrap .message { border: none !important; box-shadow: none !important; background: transparent !important; font-size: 1rem !important; }
 .message-wrap .user { background: #1e1f20 !important; border-radius: 24px !important; padding: 12px 20px !important; margin-bottom: 10px; border: none !important; max-width: 75%; }
 .message-wrap .bot { background: transparent !important; padding: 12px 0 !important; border: none !important; }
 
-/* 4. The Input Bar (Gemini Style) */
 #input-container { background: #1e1f20; border-radius: 30px; padding: 5px 10px; align-items: center; }
 #msg-input textarea { background: transparent !important; border: none !important; box-shadow: none !important; font-size: 1rem !important; padding: 10px !important; }
 #upload-btn { background: transparent !important; border: none !important; font-size: 1.4rem; padding: 0 !important; color: #a8c7fa !important; width: 40px !important; height: 40px !important; min-width: 40px !important; box-shadow: none !important; }
 #send-btn { background: transparent !important; border: none !important; font-size: 1.4rem; padding: 0 !important; width: 40px !important; height: 40px !important; min-width: 40px !important; box-shadow: none !important; }
 #upload-btn:hover, #send-btn:hover { background: #2b2c2e !important; border-radius: 50% !important; }
 
-/* Model Dropdown inside Input Row */
 #model-selector { border: none !important; background: #2b2c2e !important; border-radius: 12px !important; box-shadow: none !important; }
 #model-selector .wrap { border: none !important; background: transparent !important; box-shadow: none !important; }
 """
@@ -311,8 +320,8 @@ with gr.Blocks(title="LokNayak Legal AI", css=custom_css) as demo:
         logout_btn = gr.Button("Log Out", variant="secondary", link="/logout", visible=False)
 
     with gr.Column():
-        # type="messages" HAS BEEN REMOVED! It will now work safely on any server.
-        chatbot = gr.Chatbot(label="", height=550, show_label=False, avatar_images=(None, "🏛️"), elem_id="chatbot")
+        # WE MUST USE type="messages" to match modern Gradio Requirements natively!
+        chatbot = gr.Chatbot(label="", height=550, show_label=False, avatar_images=(None, "🏛️"), type="messages", elem_id="chatbot")
         
         file_display = gr.Markdown("", visible=False)
         
