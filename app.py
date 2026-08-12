@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════
-#  ⚖️ LOKNAYAK LEGAL AI — GRADIO 6.0+ GEMINI UI (LIST FORMAT)
+#  ⚖️ LOKNAYAK LEGAL AI — GRADIO 6.23+ IMMERSIVE GEMINI UI
 # ═══════════════════════════════════════════════════════════════════
 
 import gradio as gr
@@ -48,24 +48,17 @@ if firebase_json_env:
 else:
     print("ℹ️ FIREBASE_CREDENTIALS_JSON not found. Running in Local Memory fallback mode.")
 
-# 🔥 THE SANITIZER: Converts any old Dictionary DB entries into Gradio 6 Lists [[User, AI]]
 def sanitize_history(history_data):
     if not history_data: return []
     clean_history = []
-    temp_user = ""
     for item in history_data:
-        # If it's already the correct list format [[user, bot]]
-        if isinstance(item, (list, tuple)) and len(item) == 2:
-            clean_history.append([str(item[0]) if item[0] else "", str(item[1]) if item[1] else ""])
-        # If it's the old dictionary format, convert it
-        elif isinstance(item, dict):
-            role = item.get("role", "")
-            content = item.get("content", "")
-            if role == "user":
-                temp_user = content
-            elif role in ["assistant", "bot", "LOKNAYAK"]:
-                clean_history.append([temp_user, content])
-                temp_user = ""
+        if isinstance(item, dict):
+            role = item.get("role", "assistant")
+            if role in ["bot", "LOKNAYAK"]: role = "assistant"
+            clean_history.append({"role": role, "content": item.get("content", "")})
+        elif isinstance(item, (list, tuple)) and len(item) == 2:
+            if item[0]: clean_history.append({"role": "user", "content": str(item[0])})
+            if item[1]: clean_history.append({"role": "assistant", "content": str(item[1])})
     return clean_history
 
 def save_chat_to_cloud(email, title, history):
@@ -82,7 +75,7 @@ def save_chat_to_cloud(email, title, history):
             "updated_at": firestore.SERVER_TIMESTAMP
         }, merge=True)
     except Exception as e:
-        print(f"Cloud Save Error: {e}")
+        pass
 
 def fetch_user_chats_from_cloud(email):
     if not db or not email: return {}
@@ -103,7 +96,6 @@ def fetch_user_chats_from_cloud(email):
         user_chats = {item["title"]: sanitize_history(item["history"]) for item in chat_data}
         return user_chats
     except Exception as e:
-        print(f"Cloud Fetch Error: {e}")
         return {}
 
 # ═══════════════════════════════════════════════════════════════════
@@ -191,25 +183,23 @@ def call_llm(system_prompt, user_prompt, model_name="llama-3.1-8b-instant"):
 
 def process_chat(user_message, file_path, pipeline_mode, history, chats_store, current_title, user_email):
     if not user_message.strip() and not file_path:
-        yield "", file_path, gr.update(), history, chats_store, current_title, gr.update(), "⚠️ Type a query."
+        yield "", file_path, gr.update(), history, chats_store, current_title, gr.update()
         return
 
     doc_text = parse_file(file_path) if file_path else ""
     if len(doc_text) > 20000: doc_text = doc_text[:20000]
 
-    # Rebuild Memory Context using Gradio 6 List format
     memory_context = ""
     if history:
         memory_context = "--- PREVIOUS CONTEXT ---\n"
-        for user_msg, bot_msg in history:
-            if user_msg: memory_context += f"USER: {user_msg}\n\n"
-            if bot_msg: memory_context += f"LOKNAYAK: {bot_msg}\n\n"
+        for msg in history:
+            role_str = "USER" if msg.get("role") == "user" else "LOKNAYAK"
+            memory_context += f"{role_str}: {msg.get('content', '')}\n\n"
 
     display_msg = user_message
     if file_path: display_msg = f"📎 *[Document Attached]*\n\n" + user_message
 
-    # Append strictly using standard Lists
-    history.append([display_msg, ""])
+    history.append({"role": "user", "content": display_msg})
     
     active_title = current_title if (current_title and current_title != "New Case") else (user_message[:30] + "..." if len(user_message) > 30 else "Doc Analysis")
     
@@ -220,124 +210,138 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
     input_payload = f"{memory_context}\n--- CURRENT USER QUERY ---\n{user_message}\n"
     if doc_text: input_payload += f"\n--- ATTACHED DOC CONTEXT ---\n{doc_text}\n"
 
-    if pipeline_mode == "Multi-Agent Pipeline (Deep)":
-        history[-1][1] = "🤖 **Pipeline Initiated...**\n\n"
-        yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Working..."
+    history.append({"role": "assistant", "content": ""})
 
-        history[-1][1] += "🔍 **Agent 1:** Analyzing statutes...\n"
-        yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Agent 1..."
+    if pipeline_mode == "Multi-Agent Pipeline (Deep)":
+        history[-1]["content"] = "🤖 **Pipeline Initiated...**\n\n"
+        yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
+
+        history[-1]["content"] += "🔍 **Agent 1:** Analyzing statutes...\n"
+        yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
         research_out, _ = call_llm("You are Agent 1: Researcher. Extract core legal issues.", input_payload, "llama-3.1-8b-instant")
-        history[-1][1] += "✓ Research complete.\n\n"
+        history[-1]["content"] += "✓ Research complete.\n\n"
         
-        history[-1][1] += "⚖️ **Agent 2:** Evaluating risks...\n"
-        yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Agent 2..."
+        history[-1]["content"] += "⚖️ **Agent 2:** Evaluating risks...\n"
+        yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
         risk_out, _ = call_llm("You are Agent 2: Risk Analyst. Identify legal risks.", f"QUERY:\n{input_payload}\nRESEARCH:\n{research_out}", "llama-3.1-8b-instant")
-        history[-1][1] += "✓ Risk assessment complete.\n\n"
+        history[-1]["content"] += "✓ Risk assessment complete.\n\n"
         
-        history[-1][1] += "🏛️ **Agent 3:** Drafting analysis...\n\n---\n\n"
-        yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Agent 3..."
+        history[-1]["content"] += "🏛️ **Agent 3:** Drafting analysis...\n\n---\n\n"
+        yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
         final_out, _ = call_llm("You are Agent 3: Senior Counsel. Synthesize into Markdown.", f"CONTEXT:\n{input_payload}\nRESEARCH:\n{research_out}\nRISKS:\n{risk_out}", "llama-3.3-70b-versatile")
         
         for token in re.split(r'(\s+)', final_out or "Analysis failed."):
-            history[-1][1] += token
-            yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Finalizing..."
+            history[-1]["content"] += token
+            yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
             time.sleep(0.008)
     else:
-        yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Thinking..."
+        yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
         res_text, _ = call_llm("You are LokNayak AI. Use Markdown.", input_payload, "llama-3.3-70b-versatile")
         for token in re.split(r'(\s+)', res_text or "Analysis failed."):
-            history[-1][1] += token
-            yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(), "Typing..."
+            history[-1]["content"] += token
+            yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
             time.sleep(0.01)
 
     chats_store[active_title] = list(history)
     if user_email: save_chat_to_cloud(user_email, active_title, list(history))
 
-    yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(choices=list(chats_store.keys()), value=active_title), f"⚡ Done in {round(time.time() - start_time, 1)}s"
+    yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(choices=list(chats_store.keys()), value=active_title)
 
 def load_past_chat(selected_title, chats_store):
     if selected_title in chats_store: 
-        return sanitize_history(chats_store[selected_title]), selected_title, "Loaded chat"
-    return [], "", "Ready"
+        return sanitize_history(chats_store[selected_title]), selected_title
+    return [], ""
 
 def start_new_chat():
-    return [], None, gr.update(visible=False), "", gr.update(value=None), "New chat started"
+    return [], None, gr.update(visible=False), "", gr.update(value=None)
 
 def handle_upload(file):
     if file: return file.name, gr.update(value=f"📎 **Attached:** {os.path.basename(file.name)}", visible=True)
     return None, gr.update(visible=False)
 
 # ═══════════════════════════════════════════════════════════════════
-# 4. GRADIO UI LAYOUT (GEMINI STYLE)
+# 4. GRADIO UI LAYOUT & CSS (GEMINI IMMERSIVE STYLE)
 # ═══════════════════════════════════════════════════════════════════
-custom_css = """
-:root { --bg-main: #131314; --card-bg: #1e1f20; --text-primary: #e3e3e3; --accent: #a8c7fa; }
-body, .gradio-container { background-color: var(--bg-main) !important; color: var(--text-primary) !important; font-family: 'Google Sans', 'Inter', sans-serif !important; }
-.gradio-container { max-width: 1200px !important; margin: 0 auto !important; }
 
-footer { display: none !important; }
+# This CSS strips all borders, margins, and backgrounds to create a seamless floating interface
+css_code = """
+/* 1. Global Reset & Background (Midnight Blue/Black) */
+:root { --bg-main: #0E1117; --sidebar-bg: #1A1C23; --card-bg: #1E1F20; --text-primary: #E3E3E3; --accent: #A8C7FA; }
+body, .gradio-container { background-color: var(--bg-main) !important; color: var(--text-primary) !important; font-family: 'Google Sans', 'Inter', sans-serif !important; margin: 0 !important; padding: 0 !important; }
+footer { display: none !important; } /* Hide Gradio Footer */
 
-.header-bar h1 { font-size: 1.6rem; font-weight: 600; background: linear-gradient(135deg, #a8c7fa, #d3e3fd); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0; }
-.new-chat-btn button { background: #1e1f20 !important; color: #a8c7fa !important; border: none !important; border-radius: 20px !important; font-weight: 600 !important; padding: 10px !important; transition: 0.2s;}
+/* 2. Strip ALL Gradio Box Artifacts */
+.panel, .contain, .box, .wrap, .gr-box, .gr-panel, .form { border: none !important; box-shadow: none !important; background: transparent !important; margin: 0 !important; }
+#chatbot { border: none !important; background: transparent !important; box-shadow: none !important; }
+.chatbot-container { padding-bottom: 80px !important; } /* Space for floating input */
+
+/* 3. The Sidebar Styling */
+.gr-sidebar { background-color: var(--sidebar-bg) !important; border-right: 1px solid #2B2C2E !important; padding: 15px !important; height: 100vh !important; }
+.header-bar h1 { font-size: 1.4rem; font-weight: 600; color: #fff; margin: 0 0 20px 0; display: flex; align-items: center; gap: 8px;}
+.new-chat-btn button { background: transparent !important; color: #fff !important; border: 1px solid #3c4043 !important; border-radius: 20px !important; font-weight: 500 !important; padding: 10px 15px !important; transition: 0.2s; text-align: left !important; width: 100%; display: flex; align-items: center; gap: 10px; }
 .new-chat-btn button:hover { background: #2b2c2e !important; }
-.profile-card { background: #1e1f20; border-radius: 12px; padding: 12px; margin-top: 10px; border: none; }
 
-#history-list { border: none !important; background: transparent !important; box-shadow: none !important; }
-#history-list label { padding: 10px !important; border-radius: 8px !important; cursor: pointer; transition: 0.2s; margin-bottom: 2px; }
-#history-list label:hover { background: #2b2c2e !important; }
+/* Sidebar History List (Like Gemini's "Recent") */
+#history-list { border: none !important; background: transparent !important; box-shadow: none !important; padding: 0 !important; }
+#history-list label { padding: 10px !important; border-radius: 8px !important; cursor: pointer; transition: 0.2s; margin-bottom: 2px; font-size: 0.9rem; color: #C4C7C5 !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#history-list label:hover { background: #2B2C2E !important; color: #fff !important; }
 #history-list input[type="radio"] { display: none !important; }
 
-#chatbot { border: none !important; background: transparent !important; box-shadow: none !important; }
-.message-wrap .message { border: none !important; box-shadow: none !important; background: transparent !important; font-size: 1rem !important; }
-.message-wrap .user { background: #1e1f20 !important; border-radius: 24px !important; padding: 12px 20px !important; margin-bottom: 10px; border: none !important; max-width: 75%; }
-.message-wrap .bot { background: transparent !important; padding: 12px 0 !important; border: none !important; }
+/* 4. Chat Bubbles (Gemini Style) */
+.message-wrap .message { border: none !important; box-shadow: none !important; background: transparent !important; font-size: 1.05rem !important; color: #E3E3E3 !important; line-height: 1.6; }
+/* AI Messages: Fully transparent */
+.message-wrap .bot, .message-wrap .assistant { padding: 12px 0 !important; }
+/* User Messages: Gray rounded bubble on the right */
+.message-wrap .user { background: var(--card-bg) !important; border-radius: 24px !important; padding: 12px 20px !important; margin-bottom: 10px; max-width: 75%; float: right; clear: both; }
 
-#input-container { background: #1e1f20; border-radius: 30px; padding: 5px 10px; align-items: center; }
-#msg-input textarea { background: transparent !important; border: none !important; box-shadow: none !important; font-size: 1rem !important; padding: 10px !important; }
-#upload-btn { background: transparent !important; border: none !important; font-size: 1.4rem; padding: 0 !important; color: #a8c7fa !important; width: 40px !important; height: 40px !important; min-width: 40px !important; box-shadow: none !important; }
-#send-btn { background: transparent !important; border: none !important; font-size: 1.4rem; padding: 0 !important; width: 40px !important; height: 40px !important; min-width: 40px !important; box-shadow: none !important; }
-#upload-btn:hover, #send-btn:hover { background: #2b2c2e !important; border-radius: 50% !important; }
+/* 5. The Floating Input Bar (Fixed to bottom, centered) */
+#input-container { background: var(--card-bg); border-radius: 30px; padding: 8px 16px; display: flex; align-items: center; width: 100%; max-width: 800px; margin: 0 auto !important; position: sticky; bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid #3c4043 !important; z-index: 100; }
+#msg-input textarea { background: transparent !important; border: none !important; box-shadow: none !important; font-size: 1rem !important; padding: 10px !important; color: #E3E3E3 !important; max-height: 150px; overflow-y: auto; }
+#upload-btn, #send-btn { background: transparent !important; border: none !important; font-size: 1.3rem; padding: 0 !important; width: 40px !important; height: 40px !important; color: #A8C7FA !important; cursor: pointer; transition: 0.2s; }
+#upload-btn:hover, #send-btn:hover { background: #2B2C2E !important; border-radius: 50% !important; }
 
-#model-selector { border: none !important; background: #2b2c2e !important; border-radius: 12px !important; box-shadow: none !important; }
-#model-selector .wrap { border: none !important; background: transparent !important; box-shadow: none !important; }
+/* Model Dropdown inside the input bar */
+#model-selector { border: none !important; background: transparent !important; box-shadow: none !important; min-width: 150px; }
+#model-selector * { border: none !important; background: transparent !important; box-shadow: none !important; color: #8E918F !important; font-size: 0.85rem !important; font-weight: 500; }
+
+/* Hide redundant UI labels */
+.form { background: transparent !important; }
 """
 
-# Removed css=custom_css from the Blocks constructor to fix the Gradio 6 warning
-with gr.Blocks(title="LokNayak Legal AI") as demo:
-    # Inject CSS manually to bypass the new Gradio 6 strict constructor
-    gr.HTML(f"<style>{custom_css}</style>")
-    
+with gr.Blocks(title="LokNayak Legal AI", fill_width=True) as demo:
     chats_store = gr.State({})
     active_title = gr.State("")
     user_email_state = gr.State("")
     uploaded_file_state = gr.State(None)
 
-    with gr.Sidebar(label="LokNayak Navigation"):
-        gr.HTML("<div class='header-bar'><h1>LokNayak AI</h1></div>")
-        new_chat_btn = gr.Button("➕ New Chat", elem_classes="new-chat-btn")
-        
-        gr.Markdown("### 📜 Past Cases")
-        history_list = gr.Radio(choices=[], label="", container=False, interactive=True, elem_id="history-list")
-        
-        gr.Markdown("---")
-        gr.Markdown("### 👤 Account")
-        login_btn = gr.Button("🌐 Sign in", variant="primary", link="/login")
-        profile_html = gr.HTML("")
-        logout_btn = gr.Button("Log Out", variant="secondary", link="/logout", visible=False)
+    with gr.Row():
+        # LEFT PANEL: The Sidebar
+        with gr.Column(scale=2, elem_classes="gr-sidebar", min_width=250):
+            gr.HTML("<div class='header-bar'><h1>✨ LokNayak</h1></div>")
+            new_chat_btn = gr.Button("✏️ New chat", elem_classes="new-chat-btn")
+            
+            gr.Markdown("<br><span style='color: #8E918F; font-size: 0.8rem; font-weight: 600;'>Recent</span>")
+            history_list = gr.Radio(choices=[], label="", container=False, interactive=True, elem_id="history-list")
+            
+            gr.Markdown("<br><span style='color: #8E918F; font-size: 0.8rem; font-weight: 600;'>Account</span>")
+            login_btn = gr.Button("🌐 Sign in with Google", variant="primary", link="/login")
+            profile_html = gr.HTML("")
+            logout_btn = gr.Button("Log Out", variant="secondary", link="/logout", visible=False)
 
-    with gr.Column():
-        # type="messages" completely removed. Now universally compatible.
-        chatbot = gr.Chatbot(label="", height=550, show_label=False, avatar_images=(None, "🏛️"), elem_id="chatbot")
-        
-        file_display = gr.Markdown("", visible=False)
-        
-        with gr.Row(elem_id="input-container"):
-            file_btn = gr.UploadButton("➕", file_types=[".pdf", ".docx"], elem_id="upload-btn")
-            msg_input = gr.Textbox(placeholder="Ask a legal question...", show_label=False, container=False, scale=6, elem_id="msg-input")
-            pipeline_selector = gr.Dropdown(choices=["Fast Mode (Single AI)", "Multi-Agent Pipeline (Deep)"], value="Multi-Agent Pipeline (Deep)", show_label=False, container=False, scale=2, elem_id="model-selector")
-            send_btn = gr.Button("🚀", variant="primary", scale=1, elem_id="send-btn")
+        # RIGHT PANEL: The Main Canvas
+        with gr.Column(scale=9, elem_classes="chatbot-container"):
+            # The borderless Chatbot
+            chatbot = gr.Chatbot(label="", height="calc(100vh - 120px)", show_label=False, avatar_images=(None, "✨"), elem_id="chatbot")
+            
+            file_display = gr.Markdown("", visible=False)
+            
+            # The Floating Input Row at the bottom
+            with gr.Row(elem_id="input-container"):
+                file_btn = gr.UploadButton("➕", file_types=[".pdf", ".docx"], elem_id="upload-btn")
+                msg_input = gr.Textbox(placeholder="Ask LokNayak...", show_label=False, container=False, scale=6, elem_id="msg-input")
+                pipeline_selector = gr.Dropdown(choices=["Fast Mode", "Multi-Agent Pipeline"], value="Multi-Agent Pipeline", show_label=False, container=False, scale=2, elem_id="model-selector")
+                send_btn = gr.Button("🚀", variant="primary", scale=1, elem_id="send-btn")
 
-    status_text = gr.HTML("<div style='text-align:center; font-size:0.75rem; color:#8e918f; margin-top:8px;'>Outputs must be reviewed by an attorney.</div>")
 
     def load_user_profile_and_history(request: gr.Request):
         user = request.request.session.get('user') if request else None
@@ -351,7 +355,8 @@ with gr.Blocks(title="LokNayak Legal AI") as demo:
             latest_title = chat_choices[0] if chat_choices else ""
             latest_history = cloud_chats.get(latest_title, []) if latest_title else []
 
-            html = f"<div class='profile-card'><div style='display:flex; align-items:center; gap:10px;'><img src='{pic}' style='width:35px; height:35px; border-radius:50%;'><div><div style='font-weight:600; font-size:0.85rem; color:#e3e3e3;'>{name}</div><div style='font-size:0.7rem; color:#a8c7fa;'>{email}</div></div></div></div>"
+            # Profile Card tailored for Sidebar
+            html = f"<div style='display:flex; align-items:center; gap:10px; padding: 10px; border-radius: 8px; cursor: pointer;' onmouseover=\"this.style.background='#2b2c2e'\" onmouseout=\"this.style.background='transparent'\"><img src='{pic}' style='width:32px; height:32px; border-radius:50%;'><div><div style='font-weight:500; font-size:0.85rem; color:#e3e3e3;'>{name}</div></div></div>"
             
             return (
                 gr.update(visible=False), html, gr.update(visible=True), cloud_chats, 
@@ -365,18 +370,28 @@ with gr.Blocks(title="LokNayak Legal AI") as demo:
     demo.load(fn=load_user_profile_and_history, inputs=None, outputs=[login_btn, profile_html, logout_btn, chats_store, history_list, user_email_state, active_title, chatbot])
     
     chat_inputs = [msg_input, uploaded_file_state, pipeline_selector, chatbot, chats_store, active_title, user_email_state]
-    chat_outputs = [msg_input, uploaded_file_state, file_display, chatbot, chats_store, active_title, history_list, status_text]
+    chat_outputs = [msg_input, uploaded_file_state, file_display, chatbot, chats_store, active_title, history_list]
     
     msg_input.submit(fn=process_chat, inputs=chat_inputs, outputs=chat_outputs)
     send_btn.click(fn=process_chat, inputs=chat_inputs, outputs=chat_outputs)
     
-    history_list.change(fn=load_past_chat, inputs=[history_list, chats_store], outputs=[chatbot, active_title, status_text])
-    new_chat_btn.click(fn=start_new_chat, inputs=[], outputs=[chatbot, uploaded_file_state, file_display, active_title, history_list, status_text])
+    history_list.change(fn=load_past_chat, inputs=[history_list, chats_store], outputs=[chatbot, active_title])
+    new_chat_btn.click(fn=start_new_chat, inputs=[], outputs=[chatbot, uploaded_file_state, file_display, active_title, history_list])
 
 # ═══════════════════════════════════════════════════════════════════
-# 5. STARTUP HANDLER
+# 5. STARTUP HANDLER (Gradio 6 CSS Injection)
 # ═══════════════════════════════════════════════════════════════════
-app = gr.mount_gradio_app(app, demo, path="/")
+app = FastAPI()
+app.add_middleware(SessionMiddleware, secret_key="loknayak-secure-key-2026")
+
+# Gradio 6 dictates that CSS must be passed natively to the launch command via mount_gradio_app
+app = gr.mount_gradio_app(
+    app, 
+    demo.queue(), 
+    path="/",
+    allowed_paths=["/"],
+    **{"css": css_code} # Directly injects the CSS to override the core Gradio engine
+)
 
 if __name__ == "__main__":
     PORT = int(os.environ.get("PORT", 10000))
