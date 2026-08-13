@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════
-#  ⚖️ LOKNAYAK LEGAL AI — CORPORATE ENTERPRISE EDITION
+#  ⚖️ LOKNAYAK LEGAL AI — CORPORATE ENTERPRISE EDITION (WHISPER API)
 # ═══════════════════════════════════════════════════════════════════
 
 import gradio as gr
@@ -144,8 +144,28 @@ async def logout(request: Request):
     return RedirectResponse(url='/', status_code=303)
 
 # ═══════════════════════════════════════════════════════════════════
-# 3. AI ENGINE & CHAT CONTROLLER
+# 3. AI ENGINE, WHISPER DICTATION & CHAT CONTROLLER
 # ═══════════════════════════════════════════════════════════════════
+
+def transcribe_voice(audio_file_path):
+    """Transcribes voice audio recorded in browser using Groq Whisper model."""
+    if not audio_file_path or not GROQ_KEY:
+        return ""
+    try:
+        with open(audio_file_path, "rb") as file:
+            response = requests.post(
+                "https://api.groq.com/openai/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {GROQ_KEY}"},
+                files={"file": file},
+                data={"model": "whisper-large-v3-turbo"}
+            )
+            data = response.json()
+            # Return transcribed text and clear the audio widget to keep UI clean
+            return data.get("text", "").strip(), None 
+    except Exception as e:
+        print(f"Voice Transcription Error: {e}")
+        return "⚠️ Audio transcription failed.", None
+
 def parse_file(file_path):
     if not file_path: return ""
     try:
@@ -423,8 +443,27 @@ footer { display: none !important; }
     max-height: 150px; 
 }
 
-/* 🔥 CLEAN CSS BACKGROUND ICONS 🔥 */
-#upload-btn, #mic-btn, #send-btn { 
+/* Native Gradio Audio Styling for Whisper Integration */
+#mic-input { 
+    background: transparent !important; 
+    border: none !important; 
+    box-shadow: none !important; 
+    max-width: 50px !important; 
+    padding: 0 !important;
+}
+/* Hide all extra bulky labels from native audio component */
+#mic-input .form, #mic-input span, #mic-input .download { display: none !important; }
+#mic-input button {
+    background: transparent !important;
+    border: none !important;
+    color: var(--text-muted) !important;
+}
+#mic-input button:hover {
+    color: var(--accent-gold) !important;
+}
+
+/* 🔥 CLEAN CSS BACKGROUND ICONS FOR UPLOAD AND SEND 🔥 */
+#upload-btn, #send-btn { 
     background-color: transparent !important; 
     border: none !important; 
     width: 38px !important; 
@@ -433,15 +472,12 @@ footer { display: none !important; }
     cursor: pointer !important; 
     border-radius: 10px !important;
     transition: all 0.2s ease !important;
-    color: transparent !important; /* Hides internal text */
+    color: transparent !important;
     box-shadow: none !important;
 }
 
-#upload-btn button, #upload-btn label {
-    color: transparent !important;
-}
+#upload-btn button, #upload-btn label { color: transparent !important; }
 
-/* Upload (Paperclip) Icon */
 #upload-btn {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48'/%3E%3C/svg%3E") !important;
     background-repeat: no-repeat !important;
@@ -453,32 +489,6 @@ footer { display: none !important; }
     background-color: #232D3F !important;
 }
 
-/* Microphone Icon */
-#mic-btn {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important;
-    background-repeat: no-repeat !important;
-    background-position: center !important;
-    background-size: 18px 18px !important;
-}
-#mic-btn:hover {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C5A059' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important;
-    background-color: #232D3F !important;
-}
-
-/* Mic Active Recording State */
-#mic-btn.recording {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23EF4444' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important;
-    background-color: rgba(239, 68, 68, 0.15) !important;
-    animation: pulse-ring 1.5s infinite;
-}
-
-@keyframes pulse-ring {
-    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
-    70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
-}
-
-/* Send (Arrow) Icon */
 #send-btn {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='22' y1='2' x2='11' y2='13'/%3E%3Cpolygon points='22 2 15 22 11 13 2 9 22 2'/%3E%3C/svg%3E") !important;
     background-repeat: no-repeat !important;
@@ -490,7 +500,6 @@ footer { display: none !important; }
     background-color: #232D3F !important;
 }
 
-/* Attached File Preview Chip */
 .file-chip {
     display: inline-flex;
     align-items: center;
@@ -508,7 +517,6 @@ footer { display: none !important; }
 #model-selector { border: none !important; background: transparent !important; min-width: 145px; }
 #model-selector * { border: none !important; background: transparent !important; color: var(--text-muted) !important; font-size: 0.82rem !important; font-weight: 500; }
 
-/* Native Auth Links */
 .login-link { 
     display: block; 
     text-align: center; 
@@ -538,55 +546,7 @@ footer { display: none !important; }
 .logout-link:hover { background: #2C384E; color: #FFF !important; }
 """
 
-# JavaScript engine for direct browser speech recognition
-js_script = """
-<script>
-function startDictation() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-        alert("Speech Recognition is not supported on this browser. Please use Chrome, Edge, or Safari.");
-        return;
-    }
-    
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.lang = 'en-IN';
-
-    const inputArea = document.querySelector("#msg-input textarea") || document.querySelector("#msg-input input");
-    const micBtn = document.querySelector("#mic-btn");
-
-    if (micBtn) {
-        micBtn.classList.add("recording");
-    }
-
-    recognition.onresult = function(event) {
-        let transcript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-            transcript += event.results[i][0].transcript;
-        }
-        if (inputArea) {
-            inputArea.value = transcript;
-            inputArea.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-    };
-
-    recognition.onerror = function(event) {
-        console.error("Speech Recognition Error:", event.error);
-        if (micBtn) micBtn.classList.remove("recording");
-    };
-
-    recognition.onend = function() {
-        if (micBtn) micBtn.classList.remove("recording");
-    };
-
-    recognition.start();
-}
-</script>
-"""
-
 with gr.Blocks(title="LokNayak Legal AI — Corporate Counsel", fill_width=True) as demo:
-    gr.HTML(js_script)
     
     chats_store = gr.State({})
     active_title = gr.State("")
@@ -624,9 +584,11 @@ with gr.Blocks(title="LokNayak Legal AI — Corporate Counsel", fill_width=True)
             
             # The Floating Input Container
             with gr.Row(elem_id="input-container"):
-                # Clean buttons with an empty space value so the CSS Background Image renders perfectly
                 file_btn = gr.UploadButton(label=" ", file_types=[".pdf", ".docx"], elem_id="upload-btn")
-                mic_btn = gr.Button(value=" ", elem_id="mic-btn")
+                
+                # Using Gradio's native audio component bound to Groq Whisper
+                mic_input = gr.Audio(sources=["microphone"], type="filepath", label="", show_label=False, container=False, elem_id="mic-input")
+                
                 msg_input = gr.Textbox(placeholder="Ask LokNayak Counsel or dictate query...", show_label=False, container=False, scale=6, elem_id="msg-input")
                 pipeline_selector = gr.Dropdown(choices=["Fast Mode", "Multi-Agent Pipeline"], value="Multi-Agent Pipeline", show_label=False, container=False, scale=2, elem_id="model-selector")
                 send_btn = gr.Button(value=" ", variant="primary", scale=1, elem_id="send-btn")
@@ -655,7 +617,8 @@ with gr.Blocks(title="LokNayak Legal AI — Corporate Counsel", fill_width=True)
             )
         return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[], value=None), "", "", []
 
-    mic_btn.click(fn=None, inputs=None, outputs=None, js="() => startDictation()")
+    # Send audio to Groq Whisper API when recording stops
+    mic_input.change(fn=transcribe_voice, inputs=[mic_input], outputs=[msg_input, mic_input])
 
     file_btn.upload(fn=handle_upload, inputs=[file_btn], outputs=[uploaded_file_state, file_display])
 
