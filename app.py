@@ -423,48 +423,71 @@ footer { display: none !important; }
     max-height: 150px; 
 }
 
-/* Redesigned Enterprise Upload Button & Action Controls */
+/* 🔥 CLEAN CSS BACKGROUND ICONS 🔥 */
 #upload-btn, #mic-btn, #send-btn { 
-    background: transparent !important; 
+    background-color: transparent !important; 
     border: none !important; 
-    padding: 0 !important; 
     width: 38px !important; 
     height: 38px !important; 
     min-width: 38px !important;
-    color: var(--text-muted) !important; 
-    cursor: pointer; 
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
+    cursor: pointer !important; 
     border-radius: 10px !important;
     transition: all 0.2s ease !important;
-}
-
-#upload-btn button, #upload-btn label {
-    background: transparent !important;
-    border: none !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    cursor: pointer !important;
+    color: transparent !important; /* Hides internal text */
     box-shadow: none !important;
 }
 
-#upload-btn svg, #mic-btn svg, #send-btn svg {
-    width: 20px;
-    height: 20px;
-    stroke: var(--text-muted);
-    transition: stroke 0.2s ease;
+#upload-btn button, #upload-btn label {
+    color: transparent !important;
 }
 
-#upload-btn:hover, #mic-btn:hover, #send-btn:hover { 
-    background: #232D3F !important; 
+/* Upload (Paperclip) Icon */
+#upload-btn {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48'/%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
+    background-size: 18px 18px !important;
+}
+#upload-btn:hover {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C5A059' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48'/%3E%3C/svg%3E") !important;
+    background-color: #232D3F !important;
 }
 
-#upload-btn:hover svg, #mic-btn:hover svg, #send-btn:hover svg {
-    stroke: var(--accent-gold) !important;
+/* Microphone Icon */
+#mic-btn {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
+    background-size: 18px 18px !important;
+}
+#mic-btn:hover {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C5A059' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important;
+    background-color: #232D3F !important;
+}
+
+/* Mic Active Recording State */
+#mic-btn.recording {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23EF4444' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important;
+    background-color: rgba(239, 68, 68, 0.15) !important;
+    animation: pulse-ring 1.5s infinite;
+}
+
+@keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+    70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+/* Send (Arrow) Icon */
+#send-btn {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='22' y1='2' x2='11' y2='13'/%3E%3Cpolygon points='22 2 15 22 11 13 2 9 22 2'/%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
+    background-size: 18px 18px !important;
+}
+#send-btn:hover {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C5A059' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='22' y1='2' x2='11' y2='13'/%3E%3Cpolygon points='22 2 15 22 11 13 2 9 22 2'/%3E%3C/svg%3E") !important;
+    background-color: #232D3F !important;
 }
 
 /* Attached File Preview Chip */
@@ -480,21 +503,6 @@ footer { display: none !important; }
     font-size: 0.82rem;
     margin-bottom: 10px;
     margin-left: 20px;
-}
-
-/* Mic Active Recording State */
-#mic-btn.recording {
-    background: rgba(239, 68, 68, 0.15) !important;
-    animation: pulse-ring 1.5s infinite;
-}
-#mic-btn.recording svg {
-    stroke: #EF4444 !important;
-}
-
-@keyframes pulse-ring {
-    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
-    70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
 }
 
 #model-selector { border: none !important; background: transparent !important; min-width: 145px; }
@@ -577,11 +585,6 @@ function startDictation() {
 </script>
 """
 
-# Clean SVG Icons for Enterprise UI
-svg_paperclip = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>'
-svg_mic = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>'
-svg_send = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" x2="11" y1="2" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>'
-
 with gr.Blocks(title="LokNayak Legal AI — Corporate Counsel", fill_width=True) as demo:
     gr.HTML(js_script)
     
@@ -621,17 +624,12 @@ with gr.Blocks(title="LokNayak Legal AI — Corporate Counsel", fill_width=True)
             
             # The Floating Input Container
             with gr.Row(elem_id="input-container"):
-                # Clean SVG-based Upload Button
-                file_btn = gr.UploadButton(label=svg_paperclip, file_types=[".pdf", ".docx"], elem_id="upload-btn")
-                
-                # Clean SVG-based Mic Button
-                mic_btn = gr.Button(value=svg_mic, elem_id="mic-btn")
-                
+                # Clean buttons with an empty space value so the CSS Background Image renders perfectly
+                file_btn = gr.UploadButton(label=" ", file_types=[".pdf", ".docx"], elem_id="upload-btn")
+                mic_btn = gr.Button(value=" ", elem_id="mic-btn")
                 msg_input = gr.Textbox(placeholder="Ask LokNayak Counsel or dictate query...", show_label=False, container=False, scale=6, elem_id="msg-input")
                 pipeline_selector = gr.Dropdown(choices=["Fast Mode", "Multi-Agent Pipeline"], value="Multi-Agent Pipeline", show_label=False, container=False, scale=2, elem_id="model-selector")
-                
-                # Clean SVG-based Send Button
-                send_btn = gr.Button(value=svg_send, variant="primary", scale=1, elem_id="send-btn")
+                send_btn = gr.Button(value=" ", variant="primary", scale=1, elem_id="send-btn")
 
     def load_user_profile_and_history(request: gr.Request):
         user = request.request.session.get('user') if request else None
@@ -657,7 +655,6 @@ with gr.Blocks(title="LokNayak Legal AI — Corporate Counsel", fill_width=True)
             )
         return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[], value=None), "", "", []
 
-    # Bind mic button to JS speech recognition
     mic_btn.click(fn=None, inputs=None, outputs=None, js="() => startDictation()")
 
     file_btn.upload(fn=handle_upload, inputs=[file_btn], outputs=[uploaded_file_state, file_display])
