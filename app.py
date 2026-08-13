@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════
-#  ⚖️ LOKNAYAK LEGAL AI — GEMINI IMMERSIVE UI + VOICE & AUTO NEW CHAT
+#  ⚖️ LOKNAYAK LEGAL AI — CORPORATE ENTERPRISE EDITION
 # ═══════════════════════════════════════════════════════════════════
 
 import gradio as gr
@@ -24,7 +24,7 @@ from firebase_admin import credentials, firestore
 
 APP_NAME = "LokNayak Legal AI"
 print("=" * 60)
-print(f"  🚀 STARTING {APP_NAME} SERVER")
+print(f"  🚀 STARTING {APP_NAME} ENTERPRISE SERVER")
 print("=" * 60)
 
 GROQ_KEY = os.environ.get("GROQ_KEY")
@@ -42,7 +42,7 @@ if firebase_json_env:
         cred = credentials.Certificate(cred_dict)
         firebase_admin.initialize_app(cred)
         db = firestore.client(database_id="default")
-        print("✅ Firestore Cloud Database Connected Successfully!")
+        print("✅ Firestore Enterprise Cloud Database Connected Successfully!")
     except Exception as e:
         print("⚠️ Firestore Initialization Warning:", e)
 else:
@@ -66,7 +66,7 @@ def save_chat_to_cloud(email, title, history):
         return
     try:
         safe_doc_id = re.sub(r'[^a-zA-Z0-9 _-]', '', title).strip()[:80]
-        if not safe_doc_id: safe_doc_id = "Untitled_Case"
+        if not safe_doc_id: safe_doc_id = "Untitled_Matter"
         
         doc_ref = db.collection("users").document(email).collection("chats").document(safe_doc_id)
         doc_ref.set({
@@ -106,7 +106,7 @@ app = FastAPI()
 
 app.add_middleware(
     SessionMiddleware,
-    secret_key="loknayak-secure-key-2026-v3",
+    secret_key="loknayak-corporate-key-2026",
     same_site="lax",
     https_only=True,
     max_age=14 * 24 * 3600
@@ -144,26 +144,8 @@ async def logout(request: Request):
     return RedirectResponse(url='/', status_code=303)
 
 # ═══════════════════════════════════════════════════════════════════
-# 3. AI ENGINE, VOICE TRANSCRIBER & CHAT CONTROLLER
+# 3. AI ENGINE & CHAT CONTROLLER
 # ═══════════════════════════════════════════════════════════════════
-def transcribe_voice(audio_file_path):
-    """Transcribes voice audio recorded in browser using Groq Whisper model."""
-    if not audio_file_path or not GROQ_KEY:
-        return ""
-    try:
-        with open(audio_file_path, "rb") as file:
-            response = requests.post(
-                "https://api.groq.com/openai/v1/audio/transcriptions",
-                headers={"Authorization": f"Bearer {GROQ_KEY}"},
-                files={"file": file},
-                data={"model": "whisper-large-v3-turbo"}
-            )
-            data = response.json()
-            return data.get("text", "").strip()
-    except Exception as e:
-        print(f"Voice Transcription Error: {e}")
-        return ""
-
 def parse_file(file_path):
     if not file_path: return ""
     try:
@@ -180,7 +162,7 @@ def parse_file(file_path):
             text = "\n".join([p.text for p in doc.paragraphs if p.text])
         return text.strip()
     except Exception as e:
-        return f"[File Read Error]"
+        return f"[Document Parse Error]"
 
 def call_llm(system_prompt, user_prompt, model_name="llama-3.1-8b-instant"):
     if GROQ_KEY:
@@ -218,43 +200,43 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
 
     memory_context = ""
     if history:
-        memory_context = "--- PREVIOUS CONTEXT ---\n"
+        memory_context = "--- PREVIOUS MATTERS & CONTEXT ---\n"
         for msg in history:
-            role_str = "USER" if msg.get("role") == "user" else "LOKNAYAK"
+            role_str = "COUNSEL/USER" if msg.get("role") == "user" else "LOKNAYAK AI"
             memory_context += f"{role_str}: {msg.get('content', '')}\n\n"
 
     display_msg = user_message
-    if file_path: display_msg = f"📎 *[Document Attached]*\n\n" + user_message
+    if file_path: display_msg = f"📄 **Attached Legal File:** `{os.path.basename(file_path)}`\n\n" + user_message
 
     history.append({"role": "user", "content": display_msg})
     
-    active_title = current_title if (current_title and current_title != "New Case") else (user_message[:30] + "..." if len(user_message) > 30 else "Doc Analysis")
+    active_title = current_title if (current_title and current_title != "New Matter") else (user_message[:32] + "..." if len(user_message) > 32 else "Document Review")
     
     chats_store[active_title] = list(history)
     if user_email: save_chat_to_cloud(user_email, active_title, list(history))
 
-    input_payload = f"{memory_context}\n--- CURRENT USER QUERY ---\n{user_message}\n"
-    if doc_text: input_payload += f"\n--- ATTACHED DOC CONTEXT ---\n{doc_text}\n"
+    input_payload = f"{memory_context}\n--- CURRENT LEGAL INQUIRY ---\n{user_message}\n"
+    if doc_text: input_payload += f"\n--- ATTACHED DOCUMENT CONTEXT ---\n{doc_text}\n"
 
     history.append({"role": "assistant", "content": ""})
 
     if pipeline_mode == "Multi-Agent Pipeline":
-        history[-1]["content"] = "🤖 **Pipeline Initiated...**\n\n"
+        history[-1]["content"] = "⚖️ **LokNayak Multi-Agent Pipeline Active...**\n\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
 
-        history[-1]["content"] += "🔍 **Agent 1:** Analyzing statutes...\n"
+        history[-1]["content"] += "🔍 **Agent 1 (Research Counsel):** Analyzing statutory references & precedents...\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
-        research_out, _ = call_llm("You are Agent 1: Researcher. Extract core legal issues.", input_payload, "llama-3.1-8b-instant")
-        history[-1]["content"] += "✓ Research complete.\n\n"
+        research_out, _ = call_llm("You are Agent 1: Senior Legal Researcher. Extract core legal issues, relevant statutes, and precedents.", input_payload, "llama-3.1-8b-instant")
+        history[-1]["content"] += "✓ Statutory research complete.\n\n"
         
-        history[-1]["content"] += "⚖️ **Agent 2:** Evaluating risks...\n"
+        history[-1]["content"] += "🛡️ **Agent 2 (Risk & Compliance Analyst):** Evaluating procedural and financial exposure...\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
-        risk_out, _ = call_llm("You are Agent 2: Risk Analyst. Identify legal risks.", f"QUERY:\n{input_payload}\nRESEARCH:\n{research_out}", "llama-3.1-8b-instant")
-        history[-1]["content"] += "✓ Risk assessment complete.\n\n"
+        risk_out, _ = call_llm("You are Agent 2: Risk Analyst. Identify legal liabilities, procedural hurdles, and evidentiary weaknesses.", f"QUERY:\n{input_payload}\nRESEARCH:\n{research_out}", "llama-3.1-8b-instant")
+        history[-1]["content"] += "✓ Exposure assessment complete.\n\n"
         
-        history[-1]["content"] += "🏛️ **Agent 3:** Drafting analysis...\n\n---\n\n"
+        history[-1]["content"] += "🏛️ **Agent 3 (Senior Partner):** Synthesizing corporate legal draft...\n\n---\n\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
-        final_out, _ = call_llm("You are Agent 3: Senior Counsel. Synthesize into Markdown.", f"CONTEXT:\n{input_payload}\nRESEARCH:\n{research_out}\nRISKS:\n{risk_out}", "llama-3.3-70b-versatile")
+        final_out, _ = call_llm("You are Agent 3: Senior Partner at an elite law firm. Synthesize research and risk analysis into a highly professional legal opinion or draft using clear Markdown headers.", f"CONTEXT:\n{input_payload}\nRESEARCH:\n{research_out}\nRISKS:\n{risk_out}", "llama-3.3-70b-versatile")
         
         for token in re.split(r'(\s+)', final_out or "Analysis failed."):
             history[-1]["content"] += token
@@ -262,7 +244,7 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
             time.sleep(0.008)
     else:
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
-        res_text, _ = call_llm("You are LokNayak AI. Use Markdown.", input_payload, "llama-3.3-70b-versatile")
+        res_text, _ = call_llm("You are LokNayak AI, Senior Corporate Counsel. Structure your response professionally using Markdown headers.", input_payload, "llama-3.3-70b-versatile")
         for token in re.split(r'(\s+)', res_text or "Analysis failed."):
             history[-1]["content"] += token
             yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
@@ -282,93 +264,374 @@ def start_new_chat():
     return [], None, gr.update(visible=False), "", gr.update(value=None)
 
 def handle_upload(file):
-    if file: return file.name, gr.update(value=f"📎 **Attached:** {os.path.basename(file.name)}", visible=True)
+    if file: 
+        filename = os.path.basename(file.name)
+        chip_html = f"<div class='file-chip'><span>📄</span> <strong>{filename}</strong></div>"
+        return file.name, gr.update(value=chip_html, visible=True)
     return None, gr.update(visible=False)
 
 # ═══════════════════════════════════════════════════════════════════
-# 4. GRADIO GEMINI IMMERSIVE STYLING
+# 4. EXECUTIVE CORPORATE STYLING & SCRIPT INJECTION
 # ═══════════════════════════════════════════════════════════════════
 
 css_code = """
-:root { --bg-main: #0E1117; --sidebar-bg: #1A1C23; --card-bg: #1E1F20; --text-primary: #E3E3E3; --accent: #A8C7FA; }
-body, .gradio-container { background-color: var(--bg-main) !important; color: var(--text-primary) !important; font-family: 'Google Sans', 'Inter', sans-serif !important; margin: 0 !important; padding: 0 !important; }
+/* Executive Dark Palette */
+:root { 
+    --bg-main: #0A0E17; 
+    --sidebar-bg: #111622; 
+    --card-bg: #161C2A; 
+    --border-color: #232D3F;
+    --text-primary: #F0F4F8; 
+    --text-muted: #8E9BAE;
+    --accent-gold: #C5A059;
+    --accent-blue: #3B82F6;
+}
+
+body, .gradio-container { 
+    background-color: var(--bg-main) !important; 
+    color: var(--text-primary) !important; 
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important; 
+    margin: 0 !important; 
+    padding: 0 !important; 
+}
 footer { display: none !important; }
 
-/* Remove Gradio Borders */
-.panel, .contain, .box, .wrap, .gr-box, .gr-panel, .form { border: none !important; box-shadow: none !important; background: transparent !important; margin: 0 !important; }
+/* Strip Default Containers */
+.panel, .contain, .box, .wrap, .gr-box, .gr-panel, .form { 
+    border: none !important; 
+    box-shadow: none !important; 
+    background: transparent !important; 
+    margin: 0 !important; 
+}
 #chatbot { border: none !important; background: transparent !important; box-shadow: none !important; }
-.chatbot-container { padding-bottom: 90px !important; }
+.chatbot-container { padding-bottom: 95px !important; }
 
-/* Sidebar Layout */
-.gr-sidebar { background-color: var(--sidebar-bg) !important; border-right: 1px solid #2B2C2E !important; padding: 15px !important; height: 100vh !important; }
-.header-bar h1 { font-size: 1.4rem; font-weight: 600; color: #fff; margin: 0 0 20px 0; }
-.new-chat-btn button { background: transparent !important; color: #fff !important; border: 1px solid #3c4043 !important; border-radius: 20px !important; font-weight: 500 !important; padding: 10px 15px !important; transition: 0.2s; width: 100%; text-align: left !important; }
-.new-chat-btn button:hover { background: #2b2c2e !important; }
+/* Corporate Sidebar */
+.gr-sidebar { 
+    background-color: var(--sidebar-bg) !important; 
+    border-right: 1px solid var(--border-color) !important; 
+    padding: 18px !important; 
+    height: 100vh !important; 
+}
+.brand-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 24px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+.brand-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #FFF;
+    letter-spacing: 0.5px;
+}
+.brand-badge {
+    font-size: 0.65rem;
+    background: rgba(197, 160, 89, 0.15);
+    color: var(--accent-gold);
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid rgba(197, 160, 89, 0.3);
+    font-weight: 600;
+}
 
-#history-list { border: none !important; background: transparent !important; box-shadow: none !important; padding: 0 !important; }
-#history-list label { padding: 10px !important; border-radius: 8px !important; cursor: pointer; transition: 0.2s; margin-bottom: 2px; font-size: 0.9rem; color: #C4C7C5 !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#history-list label:hover { background: #2B2C2E !important; color: #fff !important; }
+.new-chat-btn button { 
+    background: var(--card-bg) !important; 
+    color: var(--text-primary) !important; 
+    border: 1px solid var(--border-color) !important; 
+    border-radius: 10px !important; 
+    font-weight: 600 !important; 
+    padding: 10px 14px !important; 
+    transition: all 0.2s ease; 
+    width: 100%; 
+    text-align: left !important; 
+}
+.new-chat-btn button:hover { 
+    border-color: var(--accent-gold) !important; 
+    background: #1C2436 !important;
+}
+
+#history-list { border: none !important; background: transparent !important; }
+#history-list label { 
+    padding: 10px 12px !important; 
+    border-radius: 8px !important; 
+    cursor: pointer; 
+    transition: 0.2s; 
+    margin-bottom: 3px; 
+    font-size: 0.88rem; 
+    color: var(--text-muted) !important; 
+    overflow: hidden; 
+    text-overflow: ellipsis; 
+    white-space: nowrap; 
+}
+#history-list label:hover { 
+    background: #1C2436 !important; 
+    color: #FFF !important; 
+}
 #history-list input[type="radio"] { display: none !important; }
 
 /* Chat Bubbles */
-.message-wrap .message { border: none !important; box-shadow: none !important; background: transparent !important; font-size: 1.05rem !important; color: #E3E3E3 !important; line-height: 1.6; }
-.message-wrap .bot, .message-wrap .assistant { padding: 12px 0 !important; }
-.message-wrap .user { background: var(--card-bg) !important; border-radius: 24px !important; padding: 12px 20px !important; margin-bottom: 10px; max-width: 75%; float: right; clear: both; }
+.message-wrap .message { 
+    border: none !important; 
+    box-shadow: none !important; 
+    font-size: 1rem !important; 
+    color: var(--text-primary) !important; 
+    line-height: 1.6; 
+}
+.message-wrap .bot, .message-wrap .assistant { padding: 16px 0 !important; }
+.message-wrap .user { 
+    background: var(--card-bg) !important; 
+    border: 1px solid var(--border-color) !important;
+    border-radius: 18px !important; 
+    padding: 12px 20px !important; 
+    margin-bottom: 12px; 
+    max-width: 75%; 
+    float: right; 
+    clear: both; 
+}
 
-/* Floating Input Box */
-#input-container { background: var(--card-bg); border-radius: 30px; padding: 8px 16px; display: flex; align-items: center; width: 100%; max-width: 800px; margin: 0 auto !important; position: sticky; bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid #3c4043 !important; z-index: 100; }
-#msg-input textarea { background: transparent !important; border: none !important; box-shadow: none !important; font-size: 1rem !important; padding: 10px !important; color: #E3E3E3 !important; max-height: 150px; }
-#upload-btn, #send-btn { background: transparent !important; border: none !important; font-size: 1.3rem; padding: 0 !important; width: 40px !important; height: 40px !important; color: #A8C7FA !important; cursor: pointer; }
-#upload-btn:hover, #send-btn:hover { background: #2B2C2E !important; border-radius: 50% !important; }
+/* Floating Executive Input Bar */
+#input-container { 
+    background: var(--card-bg); 
+    border-radius: 24px; 
+    padding: 6px 14px; 
+    display: flex; 
+    align-items: center; 
+    width: 100%; 
+    max-width: 850px; 
+    margin: 0 auto !important; 
+    position: sticky; 
+    bottom: 24px; 
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4); 
+    border: 1px solid var(--border-color) !important; 
+    z-index: 100; 
+    transition: border-color 0.2s ease;
+}
+#input-container:focus-within {
+    border-color: var(--accent-gold) !important;
+}
 
-/* Audio / Voice Mic Button Styling */
-#mic-input { min-width: 40px !important; width: 40px !important; height: 40px !important; background: transparent !important; border: none !important; }
-#mic-input .type-icon { display: none !important; }
-#mic-input audio { display: none !important; }
+#msg-input textarea { 
+    background: transparent !important; 
+    border: none !important; 
+    box-shadow: none !important; 
+    font-size: 0.98rem !important; 
+    padding: 10px !important; 
+    color: var(--text-primary) !important; 
+    max-height: 150px; 
+}
 
-#model-selector { border: none !important; background: transparent !important; box-shadow: none !important; min-width: 140px; }
-#model-selector * { border: none !important; background: transparent !important; box-shadow: none !important; color: #8E918F !important; font-size: 0.85rem !important; }
+/* Redesigned Enterprise Upload Button & Action Controls */
+#upload-btn, #mic-btn, #send-btn { 
+    background: transparent !important; 
+    border: none !important; 
+    padding: 0 !important; 
+    width: 38px !important; 
+    height: 38px !important; 
+    min-width: 38px !important;
+    color: var(--text-muted) !important; 
+    cursor: pointer; 
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 10px !important;
+    transition: all 0.2s ease !important;
+}
 
-/* Native Navigation Links */
-.login-link { display: block; text-align: center; background: #A8C7FA; color: #131314 !important; padding: 10px; border-radius: 20px; text-decoration: none; font-weight: 600; margin-top: 10px; transition: 0.2s; }
-.login-link:hover { background: #d3e3fd; }
-.logout-link { display: block; text-align: center; background: #3C4043; color: #E3E3E3 !important; padding: 8px; border-radius: 20px; text-decoration: none; font-weight: 500; margin-top: 10px; transition: 0.2s; }
-.logout-link:hover { background: #5f6368; }
+#upload-btn button, #upload-btn label {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer !important;
+    box-shadow: none !important;
+}
+
+#upload-btn svg, #mic-btn svg, #send-btn svg {
+    width: 20px;
+    height: 20px;
+    stroke: var(--text-muted);
+    transition: stroke 0.2s ease;
+}
+
+#upload-btn:hover, #mic-btn:hover, #send-btn:hover { 
+    background: #232D3F !important; 
+}
+
+#upload-btn:hover svg, #mic-btn:hover svg, #send-btn:hover svg {
+    stroke: var(--accent-gold) !important;
+}
+
+/* Attached File Preview Chip */
+.file-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(197, 160, 89, 0.12);
+    border: 1px solid rgba(197, 160, 89, 0.3);
+    color: var(--accent-gold);
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.82rem;
+    margin-bottom: 10px;
+    margin-left: 20px;
+}
+
+/* Mic Active Recording State */
+#mic-btn.recording {
+    background: rgba(239, 68, 68, 0.15) !important;
+    animation: pulse-ring 1.5s infinite;
+}
+#mic-btn.recording svg {
+    stroke: #EF4444 !important;
+}
+
+@keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+    70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+#model-selector { border: none !important; background: transparent !important; min-width: 145px; }
+#model-selector * { border: none !important; background: transparent !important; color: var(--text-muted) !important; font-size: 0.82rem !important; font-weight: 500; }
+
+/* Native Auth Links */
+.login-link { 
+    display: block; 
+    text-align: center; 
+    background: linear-gradient(135deg, #C5A059, #D4AF37); 
+    color: #0A0E17 !important; 
+    padding: 10px; 
+    border-radius: 10px; 
+    text-decoration: none; 
+    font-weight: 700; 
+    font-size: 0.88rem;
+    margin-top: 10px; 
+    transition: 0.2s; 
+}
+.login-link:hover { opacity: 0.9; }
+.logout-link { 
+    display: block; 
+    text-align: center; 
+    background: #232D3F; 
+    color: var(--text-muted) !important; 
+    padding: 8px; 
+    border-radius: 8px; 
+    text-decoration: none; 
+    font-size: 0.82rem;
+    margin-top: 10px; 
+    transition: 0.2s; 
+}
+.logout-link:hover { background: #2C384E; color: #FFF !important; }
 """
 
-with gr.Blocks(title="LokNayak Legal AI", fill_width=True) as demo:
+# JavaScript engine for direct browser speech recognition
+js_script = """
+<script>
+function startDictation() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        alert("Speech Recognition is not supported on this browser. Please use Chrome, Edge, or Safari.");
+        return;
+    }
+    
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = 'en-IN';
+
+    const inputArea = document.querySelector("#msg-input textarea") || document.querySelector("#msg-input input");
+    const micBtn = document.querySelector("#mic-btn");
+
+    if (micBtn) {
+        micBtn.classList.add("recording");
+    }
+
+    recognition.onresult = function(event) {
+        let transcript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            transcript += event.results[i][0].transcript;
+        }
+        if (inputArea) {
+            inputArea.value = transcript;
+            inputArea.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+    };
+
+    recognition.onerror = function(event) {
+        console.error("Speech Recognition Error:", event.error);
+        if (micBtn) micBtn.classList.remove("recording");
+    };
+
+    recognition.onend = function() {
+        if (micBtn) micBtn.classList.remove("recording");
+    };
+
+    recognition.start();
+}
+</script>
+"""
+
+# Clean SVG Icons for Enterprise UI
+svg_paperclip = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>'
+svg_mic = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>'
+svg_send = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" x2="11" y1="2" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>'
+
+with gr.Blocks(title="LokNayak Legal AI — Corporate Counsel", fill_width=True) as demo:
+    gr.HTML(js_script)
+    
     chats_store = gr.State({})
     active_title = gr.State("")
     user_email_state = gr.State("")
     uploaded_file_state = gr.State(None)
 
     with gr.Row():
-        with gr.Column(scale=2, elem_classes="gr-sidebar", min_width=250):
-            gr.HTML("<div class='header-bar'><h1>✨ LokNayak</h1></div>")
-            new_chat_btn = gr.Button("✏️ New chat", elem_classes="new-chat-btn")
+        # LEFT PANEL: Corporate Sidebar
+        with gr.Column(scale=2, elem_classes="gr-sidebar", min_width=260):
+            gr.HTML("""
+                <div class="brand-header">
+                    <span style="font-size: 1.4rem;">🏛️</span>
+                    <div>
+                        <div class="brand-title">LokNayak AI</div>
+                        <div class="brand-badge">ENTERPRISE COUNSEL</div>
+                    </div>
+                </div>
+            """)
             
-            gr.Markdown("<br><span style='color: #8E918F; font-size: 0.8rem; font-weight: 600;'>Recent</span>")
+            new_chat_btn = gr.Button("➕ New Legal Matter", elem_classes="new-chat-btn")
+            
+            gr.Markdown("<br><span style='color: #8E9BAE; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px;'>RECENT MATTERS</span>")
             history_list = gr.Radio(choices=[], label="", container=False, interactive=True, elem_id="history-list")
             
-            gr.Markdown("<br><span style='color: #8E918F; font-size: 0.8rem; font-weight: 600;'>Account</span>")
+            gr.Markdown("<br><span style='color: #8E9BAE; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px;'>COUNSEL ACCOUNT</span>")
             
             login_html = gr.HTML('<a href="/login" target="_top" class="login-link">🌐 Sign in with Google</a>')
             profile_html = gr.HTML("")
-            logout_html = gr.HTML('<a href="/logout" target="_top" class="logout-link">Log Out</a>', visible=False)
+            logout_html = gr.HTML('<a href="/logout" target="_top" class="logout-link">Sign Out</a>', visible=False)
 
+        # RIGHT PANEL: Canvas
         with gr.Column(scale=9, elem_classes="chatbot-container"):
-            chatbot = gr.Chatbot(label="", height="calc(100vh - 120px)", show_label=False, avatar_images=(None, "✨"), elem_id="chatbot")
-            file_display = gr.Markdown("", visible=False)
+            chatbot = gr.Chatbot(label="", height="calc(100vh - 120px)", show_label=False, avatar_images=(None, "🏛️"), elem_id="chatbot")
+            file_display = gr.HTML("", visible=False)
             
+            # The Floating Input Container
             with gr.Row(elem_id="input-container"):
-                file_btn = gr.UploadButton("➕", file_types=[".pdf", ".docx"], elem_id="upload-btn")
+                # Clean SVG-based Upload Button
+                file_btn = gr.UploadButton(label=svg_paperclip, file_types=[".pdf", ".docx"], elem_id="upload-btn")
                 
-                # 🎙️ Microphone input for voice transcription
-                mic_input = gr.Audio(sources=["microphone"], type="filepath", label="", container=False, elem_id="mic-input")
+                # Clean SVG-based Mic Button
+                mic_btn = gr.Button(value=svg_mic, elem_id="mic-btn")
                 
-                msg_input = gr.Textbox(placeholder="Ask LokNayak or speak...", show_label=False, container=False, scale=6, elem_id="msg-input")
+                msg_input = gr.Textbox(placeholder="Ask LokNayak Counsel or dictate query...", show_label=False, container=False, scale=6, elem_id="msg-input")
                 pipeline_selector = gr.Dropdown(choices=["Fast Mode", "Multi-Agent Pipeline"], value="Multi-Agent Pipeline", show_label=False, container=False, scale=2, elem_id="model-selector")
-                send_btn = gr.Button("🚀", variant="primary", scale=1, elem_id="send-btn")
+                
+                # Clean SVG-based Send Button
+                send_btn = gr.Button(value=svg_send, variant="primary", scale=1, elem_id="send-btn")
 
     def load_user_profile_and_history(request: gr.Request):
         user = request.request.session.get('user') if request else None
@@ -380,13 +643,12 @@ with gr.Blocks(title="LokNayak Legal AI", fill_width=True) as demo:
             cloud_chats = fetch_user_chats_from_cloud(email)
             chat_choices = list(cloud_chats.keys()) if cloud_chats else []
 
-            profile_card = f"<div style='display:flex; align-items:center; gap:10px; padding: 8px; border-radius: 8px;'><img src='{pic}' style='width:32px; height:32px; border-radius:50%;'><div><div style='font-weight:500; font-size:0.85rem; color:#e3e3e3;'>{name}</div></div></div>"
+            profile_card = f"<div style='display:flex; align-items:center; gap:10px; padding: 8px; border-radius: 8px; background: #161C2A; border: 1px solid #232D3F;'><img src='{pic}' style='width:30px; height:30px; border-radius:50%;'><div><div style='font-weight:600; font-size:0.82rem; color:#F0F4F8;'>{name}</div><div style='font-size:0.7rem; color:#8E9BAE;'>{email}</div></div></div>"
             
-            # 🎯 AUTO NEW CHAT: Sets history selection to None and chatbot to empty list []
             return (
                 gr.update(visible=False), 
                 profile_card, 
-                gr.update(visible=True, value='<a href="/logout" target="_top" class="logout-link">Log Out</a>'), 
+                gr.update(visible=True, value='<a href="/logout" target="_top" class="logout-link">Sign Out</a>'), 
                 cloud_chats, 
                 gr.update(choices=chat_choices, value=None), 
                 email, 
@@ -395,8 +657,8 @@ with gr.Blocks(title="LokNayak Legal AI", fill_width=True) as demo:
             )
         return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[], value=None), "", "", []
 
-    # Voice Recording Event: Transcribes audio into the prompt box
-    mic_input.change(fn=transcribe_voice, inputs=[mic_input], outputs=[msg_input])
+    # Bind mic button to JS speech recognition
+    mic_btn.click(fn=None, inputs=None, outputs=None, js="() => startDictation()")
 
     file_btn.upload(fn=handle_upload, inputs=[file_btn], outputs=[uploaded_file_state, file_display])
 
