@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════
-#  ⚖️ LOKNAYAK LEGAL AI — GEMINI IMMERSIVE UI (CROSS-DEVICE & BRAVE READY)
+#  ⚖️ LOKNAYAK LEGAL AI — GEMINI IMMERSIVE UI + VOICE & AUTO NEW CHAT
 # ═══════════════════════════════════════════════════════════════════
 
 import gradio as gr
@@ -41,7 +41,6 @@ if firebase_json_env:
         cred_dict = json.loads(firebase_json_env)
         cred = credentials.Certificate(cred_dict)
         firebase_admin.initialize_app(cred)
-        # Targeted directly at your 'default' Firestore database
         db = firestore.client(database_id="default")
         print("✅ Firestore Cloud Database Connected Successfully!")
     except Exception as e:
@@ -101,17 +100,16 @@ def fetch_user_chats_from_cloud(email):
         return {}
 
 # ═══════════════════════════════════════════════════════════════════
-# 2. FASTAPI & OAUTH SETUP (BRAVE & CROSS-DEVICE COMPATIBLE)
+# 2. FASTAPI & OAUTH SETUP
 # ═══════════════════════════════════════════════════════════════════
 app = FastAPI()
 
-# Configured for strict privacy browsers (Brave/Safari/Chrome Mobile)
 app.add_middleware(
     SessionMiddleware,
     secret_key="loknayak-secure-key-2026-v3",
     same_site="lax",
     https_only=True,
-    max_age=14 * 24 * 3600 # 14-day persistent sessions
+    max_age=14 * 24 * 3600
 )
 
 oauth = OAuth()
@@ -146,8 +144,26 @@ async def logout(request: Request):
     return RedirectResponse(url='/', status_code=303)
 
 # ═══════════════════════════════════════════════════════════════════
-# 3. AI ENGINE & CHAT CONTROLLER
+# 3. AI ENGINE, VOICE TRANSCRIBER & CHAT CONTROLLER
 # ═══════════════════════════════════════════════════════════════════
+def transcribe_voice(audio_file_path):
+    """Transcribes voice audio recorded in browser using Groq Whisper model."""
+    if not audio_file_path or not GROQ_KEY:
+        return ""
+    try:
+        with open(audio_file_path, "rb") as file:
+            response = requests.post(
+                "https://api.groq.com/openai/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {GROQ_KEY}"},
+                files={"file": file},
+                data={"model": "whisper-large-v3-turbo"}
+            )
+            data = response.json()
+            return data.get("text", "").strip()
+    except Exception as e:
+        print(f"Voice Transcription Error: {e}")
+        return ""
+
 def parse_file(file_path):
     if not file_path: return ""
     try:
@@ -305,10 +321,15 @@ footer { display: none !important; }
 #upload-btn, #send-btn { background: transparent !important; border: none !important; font-size: 1.3rem; padding: 0 !important; width: 40px !important; height: 40px !important; color: #A8C7FA !important; cursor: pointer; }
 #upload-btn:hover, #send-btn:hover { background: #2B2C2E !important; border-radius: 50% !important; }
 
-#model-selector { border: none !important; background: transparent !important; box-shadow: none !important; min-width: 150px; }
+/* Audio / Voice Mic Button Styling */
+#mic-input { min-width: 40px !important; width: 40px !important; height: 40px !important; background: transparent !important; border: none !important; }
+#mic-input .type-icon { display: none !important; }
+#mic-input audio { display: none !important; }
+
+#model-selector { border: none !important; background: transparent !important; box-shadow: none !important; min-width: 140px; }
 #model-selector * { border: none !important; background: transparent !important; box-shadow: none !important; color: #8E918F !important; font-size: 0.85rem !important; }
 
-/* Native Top-Level Navigation Links */
+/* Native Navigation Links */
 .login-link { display: block; text-align: center; background: #A8C7FA; color: #131314 !important; padding: 10px; border-radius: 20px; text-decoration: none; font-weight: 600; margin-top: 10px; transition: 0.2s; }
 .login-link:hover { background: #d3e3fd; }
 .logout-link { display: block; text-align: center; background: #3C4043; color: #E3E3E3 !important; padding: 8px; border-radius: 20px; text-decoration: none; font-weight: 500; margin-top: 10px; transition: 0.2s; }
@@ -331,7 +352,6 @@ with gr.Blocks(title="LokNayak Legal AI", fill_width=True) as demo:
             
             gr.Markdown("<br><span style='color: #8E918F; font-size: 0.8rem; font-weight: 600;'>Account</span>")
             
-            # Using target="_top" forces clean browser top-level navigation
             login_html = gr.HTML('<a href="/login" target="_top" class="login-link">🌐 Sign in with Google</a>')
             profile_html = gr.HTML("")
             logout_html = gr.HTML('<a href="/logout" target="_top" class="logout-link">Log Out</a>', visible=False)
@@ -342,7 +362,11 @@ with gr.Blocks(title="LokNayak Legal AI", fill_width=True) as demo:
             
             with gr.Row(elem_id="input-container"):
                 file_btn = gr.UploadButton("➕", file_types=[".pdf", ".docx"], elem_id="upload-btn")
-                msg_input = gr.Textbox(placeholder="Ask LokNayak...", show_label=False, container=False, scale=6, elem_id="msg-input")
+                
+                # 🎙️ Microphone input for voice transcription
+                mic_input = gr.Audio(sources=["microphone"], type="filepath", label="", container=False, elem_id="mic-input")
+                
+                msg_input = gr.Textbox(placeholder="Ask LokNayak or speak...", show_label=False, container=False, scale=6, elem_id="msg-input")
                 pipeline_selector = gr.Dropdown(choices=["Fast Mode", "Multi-Agent Pipeline"], value="Multi-Agent Pipeline", show_label=False, container=False, scale=2, elem_id="model-selector")
                 send_btn = gr.Button("🚀", variant="primary", scale=1, elem_id="send-btn")
 
@@ -355,22 +379,24 @@ with gr.Blocks(title="LokNayak Legal AI", fill_width=True) as demo:
 
             cloud_chats = fetch_user_chats_from_cloud(email)
             chat_choices = list(cloud_chats.keys()) if cloud_chats else []
-            latest_title = chat_choices[0] if chat_choices else ""
-            latest_history = cloud_chats.get(latest_title, []) if latest_title else []
 
             profile_card = f"<div style='display:flex; align-items:center; gap:10px; padding: 8px; border-radius: 8px;'><img src='{pic}' style='width:32px; height:32px; border-radius:50%;'><div><div style='font-weight:500; font-size:0.85rem; color:#e3e3e3;'>{name}</div></div></div>"
             
+            # 🎯 AUTO NEW CHAT: Sets history selection to None and chatbot to empty list []
             return (
                 gr.update(visible=False), 
                 profile_card, 
                 gr.update(visible=True, value='<a href="/logout" target="_top" class="logout-link">Log Out</a>'), 
                 cloud_chats, 
-                gr.update(choices=chat_choices, value=latest_title if latest_title else None),
+                gr.update(choices=chat_choices, value=None), 
                 email, 
-                latest_title, 
-                latest_history
+                "", 
+                [] 
             )
         return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[], value=None), "", "", []
+
+    # Voice Recording Event: Transcribes audio into the prompt box
+    mic_input.change(fn=transcribe_voice, inputs=[mic_input], outputs=[msg_input])
 
     file_btn.upload(fn=handle_upload, inputs=[file_btn], outputs=[uploaded_file_state, file_display])
 
