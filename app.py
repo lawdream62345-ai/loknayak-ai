@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════
-#  ⚖️ LOKNAYAK LEGAL AI — CORPORATE ENTERPRISE EDITION (WHISPER API)
+#  ⚖️ LOKNAYAK LEGAL AI — CORPORATE ENTERPRISE EDITION (CUSTOM VOICE)
 # ═══════════════════════════════════════════════════════════════════
 
 import gradio as gr
@@ -10,6 +10,8 @@ import re
 import json
 import PyPDF2
 import docx
+import base64
+import tempfile
 from google import genai
 from google.genai import types
 
@@ -144,27 +146,40 @@ async def logout(request: Request):
     return RedirectResponse(url='/', status_code=303)
 
 # ═══════════════════════════════════════════════════════════════════
-# 3. AI ENGINE, WHISPER DICTATION & CHAT CONTROLLER
+# 3. AI ENGINE, CUSTOM BASE64 WHISPER DICTATION & CHAT CONTROLLER
 # ═══════════════════════════════════════════════════════════════════
 
-def transcribe_voice(audio_file_path):
-    """Transcribes voice audio recorded in browser using Groq Whisper model."""
-    if not audio_file_path or not GROQ_KEY:
+def process_base64_audio(b64_string):
+    """Decodes custom JS Base64 audio and sends to Groq Whisper API"""
+    if not b64_string or not GROQ_KEY:
         return ""
     try:
-        with open(audio_file_path, "rb") as file:
+        # Strip the data URL prefix if present
+        if "," in b64_string:
+            b64_string = b64_string.split(",")[1]
+            
+        audio_data = base64.b64decode(b64_string)
+        
+        # Save securely to a temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_audio:
+            temp_audio.write(audio_data)
+            temp_audio_path = temp_audio.name
+            
+        # Send to Groq Whisper
+        with open(temp_audio_path, "rb") as file:
             response = requests.post(
                 "https://api.groq.com/openai/v1/audio/transcriptions",
                 headers={"Authorization": f"Bearer {GROQ_KEY}"},
                 files={"file": file},
                 data={"model": "whisper-large-v3-turbo"}
             )
-            data = response.json()
-            # Return transcribed text and clear the audio widget to keep UI clean
-            return data.get("text", "").strip(), None 
+            
+        os.remove(temp_audio_path)  # Clean up file
+        data = response.json()
+        return data.get("text", "").strip()
     except Exception as e:
-        print(f"Voice Transcription Error: {e}")
-        return "⚠️ Audio transcription failed.", None
+        print(f"Base64 Transcription Error: {e}")
+        return "⚠️ Voice dictation failed."
 
 def parse_file(file_path):
     if not file_path: return ""
@@ -291,7 +306,7 @@ def handle_upload(file):
     return None, gr.update(visible=False)
 
 # ═══════════════════════════════════════════════════════════════════
-# 4. EXECUTIVE CORPORATE STYLING & SCRIPT INJECTION
+# 4. EXECUTIVE CORPORATE STYLING & CUSTOM JS SCRIPT INJECTION
 # ═══════════════════════════════════════════════════════════════════
 
 css_code = """
@@ -304,7 +319,6 @@ css_code = """
     --text-primary: #F0F4F8; 
     --text-muted: #8E9BAE;
     --accent-gold: #C5A059;
-    --accent-blue: #3B82F6;
 }
 
 body, .gradio-container { 
@@ -333,84 +347,22 @@ footer { display: none !important; }
     padding: 18px !important; 
     height: 100vh !important; 
 }
-.brand-header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 24px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--border-color);
-}
-.brand-title {
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: #FFF;
-    letter-spacing: 0.5px;
-}
-.brand-badge {
-    font-size: 0.65rem;
-    background: rgba(197, 160, 89, 0.15);
-    color: var(--accent-gold);
-    padding: 2px 6px;
-    border-radius: 4px;
-    border: 1px solid rgba(197, 160, 89, 0.3);
-    font-weight: 600;
-}
+.brand-header { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color); }
+.brand-title { font-size: 1.25rem; font-weight: 700; color: #FFF; letter-spacing: 0.5px; }
+.brand-badge { font-size: 0.65rem; background: rgba(197, 160, 89, 0.15); color: var(--accent-gold); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(197, 160, 89, 0.3); font-weight: 600; }
 
-.new-chat-btn button { 
-    background: var(--card-bg) !important; 
-    color: var(--text-primary) !important; 
-    border: 1px solid var(--border-color) !important; 
-    border-radius: 10px !important; 
-    font-weight: 600 !important; 
-    padding: 10px 14px !important; 
-    transition: all 0.2s ease; 
-    width: 100%; 
-    text-align: left !important; 
-}
-.new-chat-btn button:hover { 
-    border-color: var(--accent-gold) !important; 
-    background: #1C2436 !important;
-}
+.new-chat-btn button { background: var(--card-bg) !important; color: var(--text-primary) !important; border: 1px solid var(--border-color) !important; border-radius: 10px !important; font-weight: 600 !important; padding: 10px 14px !important; transition: all 0.2s ease; width: 100%; text-align: left !important; }
+.new-chat-btn button:hover { border-color: var(--accent-gold) !important; background: #1C2436 !important; }
 
 #history-list { border: none !important; background: transparent !important; }
-#history-list label { 
-    padding: 10px 12px !important; 
-    border-radius: 8px !important; 
-    cursor: pointer; 
-    transition: 0.2s; 
-    margin-bottom: 3px; 
-    font-size: 0.88rem; 
-    color: var(--text-muted) !important; 
-    overflow: hidden; 
-    text-overflow: ellipsis; 
-    white-space: nowrap; 
-}
-#history-list label:hover { 
-    background: #1C2436 !important; 
-    color: #FFF !important; 
-}
+#history-list label { padding: 10px 12px !important; border-radius: 8px !important; cursor: pointer; transition: 0.2s; margin-bottom: 3px; font-size: 0.88rem; color: var(--text-muted) !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#history-list label:hover { background: #1C2436 !important; color: #FFF !important; }
 #history-list input[type="radio"] { display: none !important; }
 
 /* Chat Bubbles */
-.message-wrap .message { 
-    border: none !important; 
-    box-shadow: none !important; 
-    font-size: 1rem !important; 
-    color: var(--text-primary) !important; 
-    line-height: 1.6; 
-}
+.message-wrap .message { border: none !important; box-shadow: none !important; font-size: 1rem !important; color: var(--text-primary) !important; line-height: 1.6; }
 .message-wrap .bot, .message-wrap .assistant { padding: 16px 0 !important; }
-.message-wrap .user { 
-    background: var(--card-bg) !important; 
-    border: 1px solid var(--border-color) !important;
-    border-radius: 18px !important; 
-    padding: 12px 20px !important; 
-    margin-bottom: 12px; 
-    max-width: 75%; 
-    float: right; 
-    clear: both; 
-}
+.message-wrap .user { background: var(--card-bg) !important; border: 1px solid var(--border-color) !important; border-radius: 18px !important; padding: 12px 20px !important; margin-bottom: 12px; max-width: 75%; float: right; clear: both; }
 
 /* Floating Executive Input Bar */
 #input-container { 
@@ -429,41 +381,15 @@ footer { display: none !important; }
     z-index: 100; 
     transition: border-color 0.2s ease;
 }
-#input-container:focus-within {
-    border-color: var(--accent-gold) !important;
-}
+#input-container:focus-within { border-color: var(--accent-gold) !important; }
 
-#msg-input textarea { 
-    background: transparent !important; 
-    border: none !important; 
-    box-shadow: none !important; 
-    font-size: 0.98rem !important; 
-    padding: 10px !important; 
-    color: var(--text-primary) !important; 
-    max-height: 150px; 
-}
+#msg-input textarea { background: transparent !important; border: none !important; box-shadow: none !important; font-size: 0.98rem !important; padding: 10px !important; color: var(--text-primary) !important; max-height: 150px; }
 
-/* Native Gradio Audio Styling for Whisper Integration */
-#mic-input { 
-    background: transparent !important; 
-    border: none !important; 
-    box-shadow: none !important; 
-    max-width: 50px !important; 
-    padding: 0 !important;
-}
-/* Hide all extra bulky labels from native audio component */
-#mic-input .form, #mic-input span, #mic-input .download { display: none !important; }
-#mic-input button {
-    background: transparent !important;
-    border: none !important;
-    color: var(--text-muted) !important;
-}
-#mic-input button:hover {
-    color: var(--accent-gold) !important;
-}
+/* 🔥 HIDE GRADIO ARTIFACTS 🔥 */
+.hidden-audio-bridge { display: none !important; }
 
-/* 🔥 CLEAN CSS BACKGROUND ICONS FOR UPLOAD AND SEND 🔥 */
-#upload-btn, #send-btn { 
+/* 🔥 CLEAN CSS BACKGROUND ICONS FOR UPLOAD, MIC, AND SEND 🔥 */
+#upload-btn, #mic-btn, #send-btn { 
     background-color: transparent !important; 
     border: none !important; 
     width: 38px !important; 
@@ -480,73 +406,121 @@ footer { display: none !important; }
 
 #upload-btn {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48'/%3E%3C/svg%3E") !important;
-    background-repeat: no-repeat !important;
-    background-position: center !important;
-    background-size: 18px 18px !important;
+    background-repeat: no-repeat !important; background-position: center !important; background-size: 18px 18px !important;
 }
 #upload-btn:hover {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C5A059' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48'/%3E%3C/svg%3E") !important;
     background-color: #232D3F !important;
 }
 
+#mic-btn {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat !important; background-position: center !important; background-size: 18px 18px !important;
+}
+#mic-btn:hover {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C5A059' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important;
+    background-color: #232D3F !important;
+}
+
+/* Mic Active Recording Pulse */
+#mic-btn.recording {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23EF4444' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important;
+    background-color: rgba(239, 68, 68, 0.15) !important;
+    animation: pulse-ring 1.5s infinite;
+}
+
+@keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+    70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
 #send-btn {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='22' y1='2' x2='11' y2='13'/%3E%3Cpolygon points='22 2 15 22 11 13 2 9 22 2'/%3E%3C/svg%3E") !important;
-    background-repeat: no-repeat !important;
-    background-position: center !important;
-    background-size: 18px 18px !important;
+    background-repeat: no-repeat !important; background-position: center !important; background-size: 18px 18px !important;
 }
 #send-btn:hover {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C5A059' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='22' y1='2' x2='11' y2='13'/%3E%3Cpolygon points='22 2 15 22 11 13 2 9 22 2'/%3E%3C/svg%3E") !important;
     background-color: #232D3F !important;
 }
 
-.file-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    background: rgba(197, 160, 89, 0.12);
-    border: 1px solid rgba(197, 160, 89, 0.3);
-    color: var(--accent-gold);
-    padding: 6px 14px;
-    border-radius: 20px;
-    font-size: 0.82rem;
-    margin-bottom: 10px;
-    margin-left: 20px;
-}
+.file-chip { display: inline-flex; align-items: center; gap: 8px; background: rgba(197, 160, 89, 0.12); border: 1px solid rgba(197, 160, 89, 0.3); color: var(--accent-gold); padding: 6px 14px; border-radius: 20px; font-size: 0.82rem; margin-bottom: 10px; margin-left: 20px; }
 
 #model-selector { border: none !important; background: transparent !important; min-width: 145px; }
 #model-selector * { border: none !important; background: transparent !important; color: var(--text-muted) !important; font-size: 0.82rem !important; font-weight: 500; }
 
-.login-link { 
-    display: block; 
-    text-align: center; 
-    background: linear-gradient(135deg, #C5A059, #D4AF37); 
-    color: #0A0E17 !important; 
-    padding: 10px; 
-    border-radius: 10px; 
-    text-decoration: none; 
-    font-weight: 700; 
-    font-size: 0.88rem;
-    margin-top: 10px; 
-    transition: 0.2s; 
-}
+.login-link { display: block; text-align: center; background: linear-gradient(135deg, #C5A059, #D4AF37); color: #0A0E17 !important; padding: 10px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 0.88rem; margin-top: 10px; transition: 0.2s; }
 .login-link:hover { opacity: 0.9; }
-.logout-link { 
-    display: block; 
-    text-align: center; 
-    background: #232D3F; 
-    color: var(--text-muted) !important; 
-    padding: 8px; 
-    border-radius: 8px; 
-    text-decoration: none; 
-    font-size: 0.82rem;
-    margin-top: 10px; 
-    transition: 0.2s; 
-}
+.logout-link { display: block; text-align: center; background: #232D3F; color: var(--text-muted) !important; padding: 8px; border-radius: 8px; text-decoration: none; font-size: 0.82rem; margin-top: 10px; transition: 0.2s; }
 .logout-link:hover { background: #2C384E; color: #FFF !important; }
 """
 
+# 🔥 CUSTOM JAVASCRIPT: True MediaRecorder to bypass blocks and give instant visual feedback 🔥
+js_script = """
+<script>
+let customMediaRecorder;
+let audioChunks = [];
+let isRecording = false;
+
+async function toggleDictation() {
+    const micBtn = document.querySelector("#mic-btn");
+    const inputArea = document.querySelector("#msg-input textarea") || document.querySelector("#msg-input input");
+    const hiddenBridge = document.querySelector("#hidden-b64-audio textarea") || document.querySelector("#hidden-b64-audio input");
+
+    if (isRecording) {
+        // STOP RECORDING
+        customMediaRecorder.stop();
+        micBtn.classList.remove("recording");
+        if(inputArea) inputArea.placeholder = "Processing voice...";
+        isRecording = false;
+        return;
+    }
+
+    // START RECORDING
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        customMediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+
+        customMediaRecorder.ondataavailable = event => {
+            audioChunks.push(event.data);
+        };
+
+        customMediaRecorder.onstop = () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            const reader = new FileReader();
+            reader.readAsDataURL(audioBlob);
+            reader.onloadend = () => {
+                const base64data = reader.result;
+                
+                // Inject the recording into Gradio's hidden bridge and trigger transcription
+                if(hiddenBridge) {
+                    hiddenBridge.value = base64data;
+                    hiddenBridge.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+                
+                if(inputArea) inputArea.placeholder = "Ask LokNayak Counsel or dictate query...";
+            };
+            
+            // Release the microphone light
+            stream.getTracks().forEach(track => track.stop());
+        };
+
+        customMediaRecorder.start();
+        micBtn.classList.add("recording");
+        if(inputArea) inputArea.placeholder = "Listening... (Click mic again to stop)";
+        isRecording = true;
+
+    } catch (err) {
+        console.error("Mic access denied:", err);
+        alert("Microphone access is required for dictation. Please allow it in your browser settings.");
+    }
+}
+</script>
+"""
+
 with gr.Blocks(title="LokNayak Legal AI — Corporate Counsel", fill_width=True) as demo:
+    gr.HTML(js_script)
     
     chats_store = gr.State({})
     active_title = gr.State("")
@@ -567,12 +541,9 @@ with gr.Blocks(title="LokNayak Legal AI — Corporate Counsel", fill_width=True)
             """)
             
             new_chat_btn = gr.Button("➕ New Legal Matter", elem_classes="new-chat-btn")
-            
             gr.Markdown("<br><span style='color: #8E9BAE; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px;'>RECENT MATTERS</span>")
             history_list = gr.Radio(choices=[], label="", container=False, interactive=True, elem_id="history-list")
-            
             gr.Markdown("<br><span style='color: #8E9BAE; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px;'>COUNSEL ACCOUNT</span>")
-            
             login_html = gr.HTML('<a href="/login" target="_top" class="login-link">🌐 Sign in with Google</a>')
             profile_html = gr.HTML("")
             logout_html = gr.HTML('<a href="/logout" target="_top" class="logout-link">Sign Out</a>', visible=False)
@@ -582,12 +553,15 @@ with gr.Blocks(title="LokNayak Legal AI — Corporate Counsel", fill_width=True)
             chatbot = gr.Chatbot(label="", height="calc(100vh - 120px)", show_label=False, avatar_images=(None, "🏛️"), elem_id="chatbot")
             file_display = gr.HTML("", visible=False)
             
+            # 🔥 HIDDEN BRIDGE: Secretly passes audio from JS to Python API
+            hidden_b64_audio = gr.Textbox(elem_id="hidden-b64-audio", elem_classes="hidden-audio-bridge", container=False)
+            
             # The Floating Input Container
             with gr.Row(elem_id="input-container"):
                 file_btn = gr.UploadButton(label=" ", file_types=[".pdf", ".docx"], elem_id="upload-btn")
                 
-                # Using Gradio's native audio component bound to Groq Whisper
-                mic_input = gr.Audio(sources=["microphone"], type="filepath", label="", show_label=False, container=False, elem_id="mic-input")
+                # Pure CSS/JS Trigger button (No bulky UI widget)
+                mic_btn = gr.Button(value=" ", elem_id="mic-btn")
                 
                 msg_input = gr.Textbox(placeholder="Ask LokNayak Counsel or dictate query...", show_label=False, container=False, scale=6, elem_id="msg-input")
                 pipeline_selector = gr.Dropdown(choices=["Fast Mode", "Multi-Agent Pipeline"], value="Multi-Agent Pipeline", show_label=False, container=False, scale=2, elem_id="model-selector")
@@ -606,19 +580,16 @@ with gr.Blocks(title="LokNayak Legal AI — Corporate Counsel", fill_width=True)
             profile_card = f"<div style='display:flex; align-items:center; gap:10px; padding: 8px; border-radius: 8px; background: #161C2A; border: 1px solid #232D3F;'><img src='{pic}' style='width:30px; height:30px; border-radius:50%;'><div><div style='font-weight:600; font-size:0.82rem; color:#F0F4F8;'>{name}</div><div style='font-size:0.7rem; color:#8E9BAE;'>{email}</div></div></div>"
             
             return (
-                gr.update(visible=False), 
-                profile_card, 
-                gr.update(visible=True, value='<a href="/logout" target="_top" class="logout-link">Sign Out</a>'), 
-                cloud_chats, 
-                gr.update(choices=chat_choices, value=None), 
-                email, 
-                "", 
-                [] 
+                gr.update(visible=False), profile_card, gr.update(visible=True, value='<a href="/logout" target="_top" class="logout-link">Sign Out</a>'), 
+                cloud_chats, gr.update(choices=chat_choices, value=None), email, "", [] 
             )
         return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[], value=None), "", "", []
 
-    # Send audio to Groq Whisper API when recording stops
-    mic_input.change(fn=transcribe_voice, inputs=[mic_input], outputs=[msg_input, mic_input])
+    # JS hooks up the custom button
+    mic_btn.click(fn=None, inputs=None, outputs=None, js="() => toggleDictation()")
+    
+    # When JS injects audio into the hidden bridge, Python decodes and runs Whisper
+    hidden_b64_audio.change(fn=process_base64_audio, inputs=[hidden_b64_audio], outputs=[msg_input])
 
     file_btn.upload(fn=handle_upload, inputs=[file_btn], outputs=[uploaded_file_state, file_display])
 
