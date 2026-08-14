@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════
-#  ⚖️ LOKNAYAK LEGAL AI — CORPORATE ENTERPRISE EDITION (CUSTOM VOICE)
+#  ⚖️ VIDURA AI — CORPORATE ENTERPRISE EDITION
 # ═══════════════════════════════════════════════════════════════════
 
 import gradio as gr
@@ -24,7 +24,7 @@ from authlib.integrations.starlette_client import OAuth
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-APP_NAME = "LokNayak Legal AI"
+APP_NAME = "VIDURA AI"
 print("=" * 60)
 print(f"  🚀 STARTING {APP_NAME} ENTERPRISE SERVER")
 print("=" * 60)
@@ -56,7 +56,7 @@ def sanitize_history(history_data):
     for item in history_data:
         if isinstance(item, dict):
             role = item.get("role", "assistant")
-            if role in ["bot", "LOKNAYAK"]: role = "assistant"
+            if role in ["bot", "VIDURA AI", "VIDURA"]: role = "assistant"
             clean_history.append({"role": role, "content": str(item.get("content", ""))})
         elif isinstance(item, (list, tuple)) and len(item) == 2:
             if item[0]: clean_history.append({"role": "user", "content": str(item[0])})
@@ -108,7 +108,7 @@ app = FastAPI()
 
 app.add_middleware(
     SessionMiddleware,
-    secret_key="loknayak-corporate-key-2026",
+    secret_key="vidura-corporate-key-2026",
     same_site="lax",
     https_only=True,
     max_age=14 * 24 * 3600
@@ -150,22 +150,19 @@ async def logout(request: Request):
 # ═══════════════════════════════════════════════════════════════════
 
 def process_base64_audio(b64_string):
-    """Decodes custom JS Base64 audio and sends to Groq Whisper API"""
+    """Decodes custom JS Base64 audio seamlessly passed from the browser memory."""
     if not b64_string or not GROQ_KEY:
         return ""
     try:
-        # Strip the data URL prefix if present
         if "," in b64_string:
             b64_string = b64_string.split(",")[1]
             
         audio_data = base64.b64decode(b64_string)
         
-        # Save securely to a temporary file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_audio:
             temp_audio.write(audio_data)
             temp_audio_path = temp_audio.name
             
-        # Send to Groq Whisper
         with open(temp_audio_path, "rb") as file:
             response = requests.post(
                 "https://api.groq.com/openai/v1/audio/transcriptions",
@@ -174,7 +171,7 @@ def process_base64_audio(b64_string):
                 data={"model": "whisper-large-v3-turbo"}
             )
             
-        os.remove(temp_audio_path)  # Clean up file
+        os.remove(temp_audio_path)
         data = response.json()
         return data.get("text", "").strip()
     except Exception as e:
@@ -237,7 +234,7 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
     if history:
         memory_context = "--- PREVIOUS MATTERS & CONTEXT ---\n"
         for msg in history:
-            role_str = "COUNSEL/USER" if msg.get("role") == "user" else "LOKNAYAK AI"
+            role_str = "COUNSEL/USER" if msg.get("role") == "user" else "VIDURA AI"
             memory_context += f"{role_str}: {msg.get('content', '')}\n\n"
 
     display_msg = user_message
@@ -256,7 +253,7 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
     history.append({"role": "assistant", "content": ""})
 
     if pipeline_mode == "Multi-Agent Pipeline":
-        history[-1]["content"] = "⚖️ **LokNayak Multi-Agent Pipeline Active...**\n\n"
+        history[-1]["content"] = "⚖️ **VIDURA AI Multi-Agent Pipeline Active...**\n\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
 
         history[-1]["content"] += "🔍 **Agent 1 (Research Counsel):** Analyzing statutory references & precedents...\n"
@@ -279,7 +276,7 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
             time.sleep(0.008)
     else:
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
-        res_text, _ = call_llm("You are LokNayak AI, Senior Corporate Counsel. Structure your response professionally using Markdown headers.", input_payload, "llama-3.3-70b-versatile")
+        res_text, _ = call_llm("You are VIDURA AI, Senior Corporate Counsel. Structure your response professionally using Markdown headers.", input_payload, "llama-3.3-70b-versatile")
         for token in re.split(r'(\s+)', res_text or "Analysis failed."):
             history[-1]["content"] += token
             yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
@@ -321,32 +318,16 @@ css_code = """
     --accent-gold: #C5A059;
 }
 
-body, .gradio-container { 
-    background-color: var(--bg-main) !important; 
-    color: var(--text-primary) !important; 
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important; 
-    margin: 0 !important; 
-    padding: 0 !important; 
-}
+body, .gradio-container { background-color: var(--bg-main) !important; color: var(--text-primary) !important; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important; margin: 0 !important; padding: 0 !important; }
 footer { display: none !important; }
 
 /* Strip Default Containers */
-.panel, .contain, .box, .wrap, .gr-box, .gr-panel, .form { 
-    border: none !important; 
-    box-shadow: none !important; 
-    background: transparent !important; 
-    margin: 0 !important; 
-}
+.panel, .contain, .box, .wrap, .gr-box, .gr-panel, .form { border: none !important; box-shadow: none !important; background: transparent !important; margin: 0 !important; }
 #chatbot { border: none !important; background: transparent !important; box-shadow: none !important; }
 .chatbot-container { padding-bottom: 95px !important; }
 
 /* Corporate Sidebar */
-.gr-sidebar { 
-    background-color: var(--sidebar-bg) !important; 
-    border-right: 1px solid var(--border-color) !important; 
-    padding: 18px !important; 
-    height: 100vh !important; 
-}
+.gr-sidebar { background-color: var(--sidebar-bg) !important; border-right: 1px solid var(--border-color) !important; padding: 18px !important; height: 100vh !important; }
 .brand-header { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color); }
 .brand-title { font-size: 1.25rem; font-weight: 700; color: #FFF; letter-spacing: 0.5px; }
 .brand-badge { font-size: 0.65rem; background: rgba(197, 160, 89, 0.15); color: var(--accent-gold); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(197, 160, 89, 0.3); font-weight: 600; }
@@ -365,22 +346,7 @@ footer { display: none !important; }
 .message-wrap .user { background: var(--card-bg) !important; border: 1px solid var(--border-color) !important; border-radius: 18px !important; padding: 12px 20px !important; margin-bottom: 12px; max-width: 75%; float: right; clear: both; }
 
 /* Floating Executive Input Bar */
-#input-container { 
-    background: var(--card-bg); 
-    border-radius: 24px; 
-    padding: 6px 14px; 
-    display: flex; 
-    align-items: center; 
-    width: 100%; 
-    max-width: 850px; 
-    margin: 0 auto !important; 
-    position: sticky; 
-    bottom: 24px; 
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4); 
-    border: 1px solid var(--border-color) !important; 
-    z-index: 100; 
-    transition: border-color 0.2s ease;
-}
+#input-container { background: var(--card-bg); border-radius: 24px; padding: 6px 14px; display: flex; align-items: center; width: 100%; max-width: 850px; margin: 0 auto !important; position: sticky; bottom: 24px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); border: 1px solid var(--border-color) !important; z-index: 100; transition: border-color 0.2s ease; }
 #input-container:focus-within { border-color: var(--accent-gold) !important; }
 
 #msg-input textarea { background: transparent !important; border: none !important; box-shadow: none !important; font-size: 0.98rem !important; padding: 10px !important; color: var(--text-primary) !important; max-height: 150px; }
@@ -389,94 +355,51 @@ footer { display: none !important; }
 .hidden-audio-bridge { display: none !important; }
 
 /* 🔥 CLEAN CSS BACKGROUND ICONS FOR UPLOAD, MIC, AND SEND 🔥 */
-#upload-btn, #mic-btn, #send-btn { 
-    background-color: transparent !important; 
-    border: none !important; 
-    width: 38px !important; 
-    height: 38px !important; 
-    min-width: 38px !important;
-    cursor: pointer !important; 
-    border-radius: 10px !important;
-    transition: all 0.2s ease !important;
-    color: transparent !important;
-    box-shadow: none !important;
-}
-
+#upload-btn, #mic-btn, #send-btn { background-color: transparent !important; border: none !important; width: 38px !important; height: 38px !important; min-width: 38px !important; cursor: pointer !important; border-radius: 10px !important; transition: all 0.2s ease !important; color: transparent !important; box-shadow: none !important; }
 #upload-btn button, #upload-btn label { color: transparent !important; }
 
-#upload-btn {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48'/%3E%3C/svg%3E") !important;
-    background-repeat: no-repeat !important; background-position: center !important; background-size: 18px 18px !important;
-}
-#upload-btn:hover {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C5A059' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48'/%3E%3C/svg%3E") !important;
-    background-color: #232D3F !important;
-}
+#upload-btn { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48'/%3E%3C/svg%3E") !important; background-repeat: no-repeat !important; background-position: center !important; background-size: 18px 18px !important; }
+#upload-btn:hover { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C5A059' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48'/%3E%3C/svg%3E") !important; background-color: #232D3F !important; }
 
-#mic-btn {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important;
-    background-repeat: no-repeat !important; background-position: center !important; background-size: 18px 18px !important;
-}
-#mic-btn:hover {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C5A059' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important;
-    background-color: #232D3F !important;
-}
+#mic-btn { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important; background-repeat: no-repeat !important; background-position: center !important; background-size: 18px 18px !important; }
+#mic-btn:hover { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C5A059' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important; background-color: #232D3F !important; }
 
 /* Mic Active Recording Pulse */
-#mic-btn.recording {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23EF4444' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important;
-    background-color: rgba(239, 68, 68, 0.15) !important;
-    animation: pulse-ring 1.5s infinite;
-}
+#mic-btn.recording { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23EF4444' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important; background-color: rgba(239, 68, 68, 0.15) !important; animation: pulse-ring 1.5s infinite; }
+@keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
 
-@keyframes pulse-ring {
-    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
-    70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
-}
-
-#send-btn {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='22' y1='2' x2='11' y2='13'/%3E%3Cpolygon points='22 2 15 22 11 13 2 9 22 2'/%3E%3C/svg%3E") !important;
-    background-repeat: no-repeat !important; background-position: center !important; background-size: 18px 18px !important;
-}
-#send-btn:hover {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C5A059' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='22' y1='2' x2='11' y2='13'/%3E%3Cpolygon points='22 2 15 22 11 13 2 9 22 2'/%3E%3C/svg%3E") !important;
-    background-color: #232D3F !important;
-}
+#send-btn { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='22' y1='2' x2='11' y2='13'/%3E%3Cpolygon points='22 2 15 22 11 13 2 9 22 2'/%3E%3C/svg%3E") !important; background-repeat: no-repeat !important; background-position: center !important; background-size: 18px 18px !important; }
+#send-btn:hover { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C5A059' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='22' y1='2' x2='11' y2='13'/%3E%3Cpolygon points='22 2 15 22 11 13 2 9 22 2'/%3E%3C/svg%3E") !important; background-color: #232D3F !important; }
 
 .file-chip { display: inline-flex; align-items: center; gap: 8px; background: rgba(197, 160, 89, 0.12); border: 1px solid rgba(197, 160, 89, 0.3); color: var(--accent-gold); padding: 6px 14px; border-radius: 20px; font-size: 0.82rem; margin-bottom: 10px; margin-left: 20px; }
-
 #model-selector { border: none !important; background: transparent !important; min-width: 145px; }
 #model-selector * { border: none !important; background: transparent !important; color: var(--text-muted) !important; font-size: 0.82rem !important; font-weight: 500; }
-
 .login-link { display: block; text-align: center; background: linear-gradient(135deg, #C5A059, #D4AF37); color: #0A0E17 !important; padding: 10px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 0.88rem; margin-top: 10px; transition: 0.2s; }
 .login-link:hover { opacity: 0.9; }
 .logout-link { display: block; text-align: center; background: #232D3F; color: var(--text-muted) !important; padding: 8px; border-radius: 8px; text-decoration: none; font-size: 0.82rem; margin-top: 10px; transition: 0.2s; }
 .logout-link:hover { background: #2C384E; color: #FFF !important; }
 """
 
-# 🔥 CUSTOM JAVASCRIPT: True MediaRecorder to bypass blocks and give instant visual feedback 🔥
+# 🔥 DIRECT JS TO PYTHON AUDIO BRIDGE 🔥
 js_script = """
 <script>
 let customMediaRecorder;
 let audioChunks = [];
 let isRecording = false;
+window.lastRecordedAudioBase64 = "";
 
 async function toggleDictation() {
     const micBtn = document.querySelector("#mic-btn");
     const inputArea = document.querySelector("#msg-input textarea") || document.querySelector("#msg-input input");
-    const hiddenBridge = document.querySelector("#hidden-b64-audio textarea") || document.querySelector("#hidden-b64-audio input");
 
     if (isRecording) {
-        // STOP RECORDING
         customMediaRecorder.stop();
-        micBtn.classList.remove("recording");
-        if(inputArea) inputArea.placeholder = "Processing voice...";
+        if (micBtn) micBtn.classList.remove("recording");
+        if (inputArea) inputArea.placeholder = "Processing voice...";
         isRecording = false;
         return;
     }
 
-    // START RECORDING
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         customMediaRecorder = new MediaRecorder(stream);
@@ -491,24 +414,21 @@ async function toggleDictation() {
             const reader = new FileReader();
             reader.readAsDataURL(audioBlob);
             reader.onloadend = () => {
-                const base64data = reader.result;
+                // Save the data to global memory
+                window.lastRecordedAudioBase64 = reader.result;
                 
-                // Inject the recording into Gradio's hidden bridge and trigger transcription
-                if(hiddenBridge) {
-                    hiddenBridge.value = base64data;
-                    hiddenBridge.dispatchEvent(new Event('input', { bubbles: true }));
-                }
+                // Click the hidden trigger button to alert Python
+                const hiddenBtn = document.querySelector("#hidden-submit-btn");
+                if (hiddenBtn) hiddenBtn.click();
                 
-                if(inputArea) inputArea.placeholder = "Ask LokNayak Counsel or dictate query...";
+                if (inputArea) inputArea.placeholder = "Ask VIDURA AI or dictate query...";
             };
-            
-            // Release the microphone light
             stream.getTracks().forEach(track => track.stop());
         };
 
         customMediaRecorder.start();
-        micBtn.classList.add("recording");
-        if(inputArea) inputArea.placeholder = "Listening... (Click mic again to stop)";
+        if (micBtn) micBtn.classList.add("recording");
+        if (inputArea) inputArea.placeholder = "Listening... (Click mic again to stop)";
         isRecording = true;
 
     } catch (err) {
@@ -519,7 +439,7 @@ async function toggleDictation() {
 </script>
 """
 
-with gr.Blocks(title="LokNayak Legal AI — Corporate Counsel", fill_width=True) as demo:
+with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo:
     gr.HTML(js_script)
     
     chats_store = gr.State({})
@@ -534,7 +454,7 @@ with gr.Blocks(title="LokNayak Legal AI — Corporate Counsel", fill_width=True)
                 <div class="brand-header">
                     <span style="font-size: 1.4rem;">🏛️</span>
                     <div>
-                        <div class="brand-title">LokNayak AI</div>
+                        <div class="brand-title">VIDURA AI</div>
                         <div class="brand-badge">ENTERPRISE COUNSEL</div>
                     </div>
                 </div>
@@ -553,19 +473,16 @@ with gr.Blocks(title="LokNayak Legal AI — Corporate Counsel", fill_width=True)
             chatbot = gr.Chatbot(label="", height="calc(100vh - 120px)", show_label=False, avatar_images=(None, "🏛️"), elem_id="chatbot")
             file_display = gr.HTML("", visible=False)
             
-            # 🔥 HIDDEN BRIDGE: Secretly passes audio from JS to Python API
-            hidden_b64_audio = gr.Textbox(elem_id="hidden-b64-audio", elem_classes="hidden-audio-bridge", container=False)
-            
             # The Floating Input Container
             with gr.Row(elem_id="input-container"):
                 file_btn = gr.UploadButton(label=" ", file_types=[".pdf", ".docx"], elem_id="upload-btn")
-                
-                # Pure CSS/JS Trigger button (No bulky UI widget)
                 mic_btn = gr.Button(value=" ", elem_id="mic-btn")
-                
-                msg_input = gr.Textbox(placeholder="Ask LokNayak Counsel or dictate query...", show_label=False, container=False, scale=6, elem_id="msg-input")
+                msg_input = gr.Textbox(placeholder="Ask VIDURA AI or dictate query...", show_label=False, container=False, scale=6, elem_id="msg-input")
                 pipeline_selector = gr.Dropdown(choices=["Fast Mode", "Multi-Agent Pipeline"], value="Multi-Agent Pipeline", show_label=False, container=False, scale=2, elem_id="model-selector")
                 send_btn = gr.Button(value=" ", variant="primary", scale=1, elem_id="send-btn")
+                
+            # Invisible trigger button
+            hidden_btn = gr.Button(elem_id="hidden-submit-btn", visible=False)
 
     def load_user_profile_and_history(request: gr.Request):
         user = request.request.session.get('user') if request else None
@@ -585,11 +502,16 @@ with gr.Blocks(title="LokNayak Legal AI — Corporate Counsel", fill_width=True)
             )
         return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[], value=None), "", "", []
 
-    # JS hooks up the custom button
+    # 1. User clicks the Mic Button -> Starts/Stops the JS Recorder
     mic_btn.click(fn=None, inputs=None, outputs=None, js="() => toggleDictation()")
     
-    # When JS injects audio into the hidden bridge, Python decodes and runs Whisper
-    hidden_b64_audio.change(fn=process_base64_audio, inputs=[hidden_b64_audio], outputs=[msg_input])
+    # 2. When recording stops, JS clicks this invisible button which sucks the data out of the browser memory
+    hidden_btn.click(
+        fn=process_base64_audio, 
+        inputs=[], 
+        outputs=[msg_input], 
+        js="() => { return window.lastRecordedAudioBase64 || ''; }"
+    )
 
     file_btn.upload(fn=handle_upload, inputs=[file_btn], outputs=[uploaded_file_state, file_display])
 
