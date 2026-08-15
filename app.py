@@ -196,19 +196,20 @@ def parse_file(file_path):
     except Exception as e:
         return f"[Document Parse Error]"
 
-def call_llm(system_prompt, user_prompt, model_name="llama-3.1-8b-instant"):
+def call_llm(system_prompt, user_prompt, model_name="openai/gpt-oss-120b"):
     if GROQ_KEY:
         try:
             resp = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
                 json={"model": model_name, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}], "temperature": 0.2, "max_tokens": 1800},
-                timeout=20
+                timeout=25
             )
             data = resp.json()
             if "choices" in data and len(data["choices"]) > 0:
                 return data["choices"][0]["message"]["content"], f"Groq ({model_name})"
-        except Exception: pass
+        except Exception as e:
+            print(f"LLM Call Error ({model_name}): {e}")
 
     if GEMINI_KEY:
         try:
@@ -268,7 +269,8 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
         
         history[-1]["content"] += "🏛️ **Agent 3 (Senior Partner):** Synthesizing corporate legal draft...\n\n---\n\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
-        final_out, _ = call_llm("You are Agent 3: Senior Partner at an elite law firm. Synthesize research and risk analysis into a highly professional legal opinion or draft using clear Markdown headers.", f"CONTEXT:\n{input_payload}\nRESEARCH:\n{research_out}\nRISKS:\n{risk_out}", "llama-3.3-70b-versatile")
+        # Using openai/gpt-oss-120b for heavy high-powered reasoning
+        final_out, _ = call_llm("You are Agent 3: Senior Partner at an elite law firm. Synthesize research and risk analysis into a highly professional legal opinion or draft using clear Markdown headers.", f"CONTEXT:\n{input_payload}\nRESEARCH:\n{research_out}\nRISKS:\n{risk_out}", "openai/gpt-oss-120b")
         
         for token in re.split(r'(\s+)', final_out or "Analysis failed."):
             history[-1]["content"] += token
@@ -276,7 +278,7 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
             time.sleep(0.008)
     else:
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
-        res_text, _ = call_llm("You are VIDURA AI, Senior Corporate Counsel. Structure your response professionally using Markdown headers.", input_payload, "llama-3.3-70b-versatile")
+        res_text, _ = call_llm("You are VIDURA AI, Senior Corporate Counsel. Structure your response professionally using Markdown headers.", input_payload, "openai/gpt-oss-120b")
         for token in re.split(r'(\s+)', res_text or "Analysis failed."):
             history[-1]["content"] += token
             yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
@@ -414,13 +416,9 @@ async function toggleDictation() {
             const reader = new FileReader();
             reader.readAsDataURL(audioBlob);
             reader.onloadend = () => {
-                // Save the data to global memory
                 window.lastRecordedAudioBase64 = reader.result;
-                
-                // Click the hidden trigger button to alert Python
                 const hiddenBtn = document.querySelector("#hidden-submit-btn");
                 if (hiddenBtn) hiddenBtn.click();
-                
                 if (inputArea) inputArea.placeholder = "Ask VIDURA AI or dictate query...";
             };
             stream.getTracks().forEach(track => track.stop());
@@ -448,7 +446,6 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
     uploaded_file_state = gr.State(None)
 
     with gr.Row():
-        # LEFT PANEL: Corporate Sidebar
         with gr.Column(scale=2, elem_classes="gr-sidebar", min_width=260):
             gr.HTML("""
                 <div class="brand-header">
@@ -468,12 +465,10 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
             profile_html = gr.HTML("")
             logout_html = gr.HTML('<a href="/logout" target="_top" class="logout-link">Sign Out</a>', visible=False)
 
-        # RIGHT PANEL: Canvas
         with gr.Column(scale=9, elem_classes="chatbot-container"):
             chatbot = gr.Chatbot(label="", height="calc(100vh - 120px)", show_label=False, avatar_images=(None, "🏛️"), elem_id="chatbot")
             file_display = gr.HTML("", visible=False)
             
-            # The Floating Input Container
             with gr.Row(elem_id="input-container"):
                 file_btn = gr.UploadButton(label=" ", file_types=[".pdf", ".docx"], elem_id="upload-btn")
                 mic_btn = gr.Button(value=" ", elem_id="mic-btn")
@@ -481,7 +476,6 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
                 pipeline_selector = gr.Dropdown(choices=["Fast Mode", "Multi-Agent Pipeline"], value="Multi-Agent Pipeline", show_label=False, container=False, scale=2, elem_id="model-selector")
                 send_btn = gr.Button(value=" ", variant="primary", scale=1, elem_id="send-btn")
                 
-            # Invisible trigger button
             hidden_btn = gr.Button(elem_id="hidden-submit-btn", visible=False)
 
     def load_user_profile_and_history(request: gr.Request):
@@ -502,10 +496,8 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
             )
         return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[], value=None), "", "", []
 
-    # 1. User clicks the Mic Button -> Starts/Stops the JS Recorder
     mic_btn.click(fn=None, inputs=None, outputs=None, js="() => toggleDictation()")
     
-    # 2. When recording stops, JS clicks this invisible button which sucks the data out of the browser memory
     hidden_btn.click(
         fn=process_base64_audio, 
         inputs=[], 
@@ -526,9 +518,6 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
     history_list.change(fn=load_past_chat, inputs=[history_list, chats_store], outputs=[chatbot, active_title])
     new_chat_btn.click(fn=start_new_chat, inputs=[], outputs=[chatbot, uploaded_file_state, file_display, active_title, history_list])
 
-# ═══════════════════════════════════════════════════════════════════
-# 5. STARTUP HANDLER
-# ═══════════════════════════════════════════════════════════════════
 app = gr.mount_gradio_app(
     app, 
     demo.queue(), 
