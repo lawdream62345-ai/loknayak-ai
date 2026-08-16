@@ -102,8 +102,18 @@ def fetch_user_chats_from_cloud(email):
         return {}
 
 # ═══════════════════════════════════════════════════════════════════
-# 2. FASTAPI & OAUTH SETUP
+# 2. FASTAPI & OAUTH SETUP (WITH ENTERPRISE ACCESS CONTROL)
 # ═══════════════════════════════════════════════════════════════════
+
+# 🛑 THE BOUNCER: Only these emails or domains are allowed inside
+ALLOWED_EMAILS = [
+    "your.email@gmail.com", 
+    "partner@examplelaw.com"
+]
+ALLOWED_DOMAINS = [
+    "@smithlawfirm.com"  # Any email ending in this will be allowed
+]
+
 app = FastAPI()
 
 app.add_middleware(
@@ -135,7 +145,19 @@ async def auth(request: Request):
         token = await oauth.google.authorize_access_token(request)
         user = token.get('userinfo')
         if user:
-            request.session['user'] = dict(user)
+            user_email = user.get("email", "").lower()
+            
+            # Check if the user is on the VIP list or belongs to an approved law firm
+            is_allowed = (user_email in ALLOWED_EMAILS) or any(user_email.endswith(domain) for domain in ALLOWED_DOMAINS)
+            
+            if is_allowed:
+                request.session['user'] = dict(user)
+                print(f"✅ APPROVED LOGIN: {user_email}")
+            else:
+                print(f"🚨 BLOCKED UNAUTHORIZED LOGIN ATTEMPT: {user_email}")
+                # You could redirect to a custom error page here, but for now we just return them to the login screen
+                return RedirectResponse(url='/?error=Access_Denied_Not_On_Enterprise_List', status_code=303)
+                
     except Exception as e:
         print("Auth Exception:", e)
     return RedirectResponse(url='/', status_code=303)
