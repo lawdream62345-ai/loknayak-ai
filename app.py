@@ -259,18 +259,17 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
 
         history[-1]["content"] += "🔍 **Agent 1 (Research Counsel):** Analyzing statutory references & precedents...\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
-        research_out, _ = call_llm("You are Agent 1: Senior Legal Researcher. Extract core legal issues, relevant statutes, and precedents.", input_payload, "llama-3.1-8b-instant")
+        research_out, _ = call_llm("You are Agent 1: Senior Legal Researcher. Extract core legal issues, relevant statutes, and precedents. Be extremely concise and limit your response to 150 words.", input_payload, "llama-3.1-8b-instant")
         history[-1]["content"] += "✓ Statutory research complete.\n\n"
         
         history[-1]["content"] += "🛡️ **Agent 2 (Risk & Compliance Analyst):** Evaluating procedural and financial exposure...\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
-        risk_out, _ = call_llm("You are Agent 2: Risk Analyst. Identify legal liabilities, procedural hurdles, and evidentiary weaknesses.", f"QUERY:\n{input_payload}\nRESEARCH:\n{research_out}", "llama-3.1-8b-instant")
+        risk_out, _ = call_llm("You are Agent 2: Risk Analyst. Identify legal liabilities, procedural hurdles, and evidentiary weaknesses. Use bullet points and be extremely brief (max 150 words).", f"QUERY:\n{input_payload}\nRESEARCH:\n{research_out}", "llama-3.1-8b-instant")
         history[-1]["content"] += "✓ Exposure assessment complete.\n\n"
         
         history[-1]["content"] += "🏛️ **Agent 3 (Senior Partner):** Synthesizing corporate legal draft...\n\n---\n\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
-        # Using openai/gpt-oss-120b for heavy high-powered reasoning
-        final_out, _ = call_llm("You are Agent 3: Senior Partner at an elite law firm. Synthesize research and risk analysis into a highly professional legal opinion or draft using clear Markdown headers.", f"CONTEXT:\n{input_payload}\nRESEARCH:\n{research_out}\nRISKS:\n{risk_out}", "openai/gpt-oss-120b")
+        final_out, _ = call_llm("You are Agent 3: Senior Partner at an elite law firm. Synthesize the research and risk analysis into a highly professional, strictly condensed legal opinion or draft. Provide only the essential core clauses and an executive summary. Omit standard boilerplate. Limit your entire response to under 600 words.", f"CONTEXT:\n{input_payload}\nRESEARCH:\n{research_out}\nRISKS:\n{risk_out}", "openai/gpt-oss-120b")
         
         for token in re.split(r'(\s+)', final_out or "Analysis failed."):
             history[-1]["content"] += token
