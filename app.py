@@ -107,8 +107,8 @@ def fetch_user_chats_from_cloud(email):
 
 # 🛑 THE BOUNCER: Only these emails or domains are allowed inside
 ALLOWED_EMAILS = [
-    "your.email@gmail.com", 
-    "partner@examplelaw.com"
+    "kumar626435@gmail.com", 
+    "lawdream62345@gmail.com"
 ]
 ALLOWED_DOMAINS = [
     "@smithlawfirm.com"  # Any email ending in this will be allowed
@@ -205,18 +205,57 @@ def parse_file(file_path):
     try:
         ext = os.path.splitext(file_path)[1].lower()
         text = ""
-        if ext == ".pdf":
+        
+        # 📸 --- 1. HANDLE IMAGES (Photos of contracts, screenshots) ---
+        if ext in [".jpg", ".jpeg", ".png"]:
+            if GEMINI_KEY:
+                from PIL import Image
+                client = genai.Client(api_key=GEMINI_KEY)
+                img = Image.open(file_path)
+                response = client.models.generate_content(
+                    model="gemini-1.5-flash",
+                    contents=["Extract all readable text from this document image exactly as it appears. If it is illegible, state that.", img]
+                )
+                return response.text.strip()
+            else:
+                return "[OCR Error: Gemini API key required to read images.]"
+
+        # 📄 --- 2. HANDLE PDFs (Digital AND Scanned) ---
+        elif ext == ".pdf":
+            # First, try standard digital extraction (fastest & free)
             with open(file_path, "rb") as f:
                 reader = PyPDF2.PdfReader(f)
                 for page in reader.pages:
                     extracted = page.extract_text()
                     if extracted: text += extracted + "\n"
+            
+            # 🚨 THE MAGIC TRICK: If the PDF yielded less than 50 characters, 
+            # it means it is a SCANNED image-based PDF. Trigger the Gemini OCR!
+            if len(text.strip()) < 50 and GEMINI_KEY:
+                print("📄 Detected Scanned PDF. Triggering Gemini OCR Engine...")
+                client = genai.Client(api_key=GEMINI_KEY)
+                
+                # Securely upload to Gemini Vision
+                uploaded_doc = client.files.upload(file=file_path)
+                
+                response = client.models.generate_content(
+                    model="gemini-1.5-flash",
+                    contents=[uploaded_doc, "This is a scanned legal document. Extract all readable text exactly as written."]
+                )
+                text = response.text
+                
+                # 🔒 PRIVACY PROTOCOL: Delete the file from Google's servers immediately after reading
+                client.files.delete(name=uploaded_doc.name)
+                
+        # 📝 --- 3. HANDLE WORD DOCS ---
         elif ext in [".docx", ".doc"]:
             doc = docx.Document(file_path)
             text = "\n".join([p.text for p in doc.paragraphs if p.text])
+            
         return text.strip()
     except Exception as e:
-        return f"[Document Parse Error]"
+        print(f"Document Parse Error: {e}")
+        return f"[Document Parse Error: OCR could not read the file.]"
 
 def call_llm(system_prompt, user_prompt, model_name="openai/gpt-oss-120b"):
     if GROQ_KEY:
@@ -491,7 +530,7 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
             file_display = gr.HTML("", visible=False)
             
             with gr.Row(elem_id="input-container"):
-                file_btn = gr.UploadButton(label=" ", file_types=[".pdf", ".docx"], elem_id="upload-btn")
+                file_btn = gr.UploadButton(label=" ", file_types=[".pdf", ".docx", ".jpg", ".jpeg", ".png"], elem_id="upload-btn")
                 mic_btn = gr.Button(value=" ", elem_id="mic-btn")
                 msg_input = gr.Textbox(placeholder="Ask VIDURA AI or dictate query...", show_label=False, container=False, scale=6, elem_id="msg-input")
                 pipeline_selector = gr.Dropdown(choices=["Fast Mode", "Multi-Agent Pipeline"], value="Multi-Agent Pipeline", show_label=False, container=False, scale=2, elem_id="model-selector")
