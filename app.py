@@ -171,8 +171,10 @@ async def logout(request: Request):
 # 3. AI ENGINE, CUSTOM BASE64 WHISPER DICTATION & CHAT CONTROLLER
 # ═══════════════════════════════════════════════════════════════════
 
-def process_base64_audio(b64_string):
+def process_base64_audio(*args):
     """Decodes custom JS Base64 audio seamlessly passed from the browser memory."""
+    b64_string = args[0] if args else ""
+    
     if not b64_string or not GROQ_KEY:
         return ""
     try:
