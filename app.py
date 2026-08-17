@@ -479,8 +479,13 @@ async function toggleDictation() {
             reader.readAsDataURL(audioBlob);
             reader.onloadend = () => {
                 window.lastRecordedAudioBase64 = reader.result;
-                const hiddenBtn = document.querySelector("#hidden-submit-btn");
-                if (hiddenBtn) hiddenBtn.click();
+                
+                // 🛑 UPGRADED CLICKER: Finds the actual button inside the Gradio div
+                const hiddenWrapper = document.querySelector("#hidden-submit-btn");
+                if (hiddenWrapper) {
+                    const actualBtn = hiddenWrapper.querySelector("button") || hiddenWrapper;
+                    actualBtn.click();
+                }
                 if (inputArea) inputArea.placeholder = "Ask VIDURA AI or dictate query...";
             };
             stream.getTracks().forEach(track => track.stop());
@@ -538,8 +543,7 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
                 pipeline_selector = gr.Dropdown(choices=["Fast Mode", "Multi-Agent Pipeline"], value="Multi-Agent Pipeline", show_label=False, container=False, scale=2, elem_id="model-selector")
                 send_btn = gr.Button(value=" ", variant="primary", scale=1, elem_id="send-btn")
                 
-            hidden_btn = gr.Button(elem_id="hidden-submit-btn", visible=False)
-
+            hidden_btn = gr.Button(elem_id="hidden-submit-btn", elem_classes="hidden-audio-bridge")
     def load_user_profile_and_history(request: gr.Request):
         user = request.request.session.get('user') if request else None
         if user:
