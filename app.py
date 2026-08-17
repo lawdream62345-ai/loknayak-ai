@@ -525,10 +525,24 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
             cloud_chats = fetch_user_chats_from_cloud(email)
             chat_choices = list(cloud_chats.keys()) if cloud_chats else []
 
-            profile_card = f"<div style='display:flex; align-items:center; gap:10px; padding: 8px; border-radius: 8px; background: #161C2A; border: 1px solid #232D3F;'><img src='{pic}' style='width:30px; height:30px; border-radius:50%;'><div><div style='font-weight:600; font-size:0.82rem; color:#F0F4F8;'>{name}</div><div style='font-size:0.7rem; color:#8E9BAE;'>{email}</div></div></div>"
+            # 🔥 THE FIX: Combined Profile Info and Sign Out button into one sleek card
+            profile_card = f"""
+            <div style='background: #161C2A; border: 1px solid #232D3F; border-radius: 12px; padding: 12px; margin-top: 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
+                <div style='display:flex; align-items:center; gap:12px; margin-bottom: 12px;'>
+                    <img src='{pic}' style='width:38px; height:38px; border-radius:50%; border: 1px solid #232D3F;'>
+                    <div style='overflow:hidden;'>
+                        <div style='font-weight:600; font-size:0.85rem; color:#F0F4F8; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;'>{name}</div>
+                        <div style='font-size:0.72rem; color:#8E9BAE; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;'>{email}</div>
+                    </div>
+                </div>
+                <a href="/logout" target="_top" style='display:block; text-align:center; background:#232D3F; color:#F0F4F8; padding:8px; border-radius:8px; text-decoration:none; font-size:0.82rem; font-weight:600; border: 1px solid #2C384E;'>Sign Out</a>
+            </div>
+            """
             
             return (
-                gr.update(visible=False), profile_card, gr.update(visible=True, value='<a href="/logout" target="_top" class="logout-link">Sign Out</a>'), 
+                gr.update(visible=False), # Hides the main Sign In link
+                profile_card,             # Shows the new combined Account Card
+                gr.update(visible=False), # Hides the old awkward Sign Out button
                 cloud_chats, gr.update(choices=chat_choices, value=None), email, "", [] 
             )
         return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[], value=None), "", "", []
