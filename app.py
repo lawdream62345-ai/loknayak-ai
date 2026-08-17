@@ -422,6 +422,29 @@ footer { display: none !important; }
 .login-link:hover { opacity: 0.9; }
 .logout-link { display: block; text-align: center; background: #232D3F; color: var(--text-muted) !important; padding: 8px; border-radius: 8px; text-decoration: none; font-size: 0.82rem; margin-top: 10px; transition: 0.2s; }
 .logout-link:hover { background: #2C384E; color: #FFF !important; }
+/* 🔥 PREMIUM ENTERPRISE LOADING ANIMATION 🔥 */
+/* 1. Hide Gradio's ugly default loading box and text */
+.wrap.default.full, .progress-text, .meta-text-center { 
+    display: none !important; 
+    opacity: 0 !important; 
+}
+
+/* 2. Change the tiny progress bar at the top to corporate gold */
+.progress-level-inner { 
+    background-color: var(--accent-gold) !important; 
+}
+
+/* 3. Make the Input Bar pulse with a glowing gold aura when the AI is thinking */
+.generating#input-container, .generating #msg-input {
+    border-color: var(--accent-gold) !important;
+    animation: gold-pulse 1.5s infinite ease-in-out !important;
+}
+
+@keyframes gold-pulse { 
+    0% { box-shadow: 0 0 5px rgba(197, 160, 89, 0.1); } 
+    50% { box-shadow: 0 0 25px rgba(197, 160, 89, 0.6); } 
+    100% { box-shadow: 0 0 5px rgba(197, 160, 89, 0.1); } 
+}
 """
 
 # 🔥 DIRECT INLINE JS AUDIO BRIDGE (BYPASSES GRADIO SECURITY) 🔥
