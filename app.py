@@ -105,13 +105,12 @@ def fetch_user_chats_from_cloud(email):
 # 2. FASTAPI & OAUTH SETUP (WITH ENTERPRISE ACCESS CONTROL)
 # ═══════════════════════════════════════════════════════════════════
 
-# 🛑 THE BOUNCER: Only these emails or domains are allowed inside
 ALLOWED_EMAILS = [
     "kumar626435@gmail.com", 
     "lawdream62345@gmail.com"
 ]
 ALLOWED_DOMAINS = [
-    "@smithlawfirm.com"  # Any email ending in this will be allowed
+    "@smithlawfirm.com"
 ]
 
 app = FastAPI()
@@ -146,17 +145,13 @@ async def auth(request: Request):
         user = token.get('userinfo')
         if user:
             user_email = user.get("email", "").lower()
-            
-            # Check if the user is on the VIP list or belongs to an approved law firm
             is_allowed = (user_email in ALLOWED_EMAILS) or any(user_email.endswith(domain) for domain in ALLOWED_DOMAINS)
-            
             if is_allowed:
                 request.session['user'] = dict(user)
                 print(f"✅ APPROVED LOGIN: {user_email}")
             else:
                 print(f"🚨 BLOCKED UNAUTHORIZED LOGIN ATTEMPT: {user_email}")
                 return RedirectResponse(url='/?error=Access_Denied_Not_On_Enterprise_List', status_code=303)
-                
     except Exception as e:
         print("Auth Exception:", e)
     return RedirectResponse(url='/', status_code=303)
@@ -170,10 +165,7 @@ async def logout(request: Request):
 # 3. AI ENGINE, CUSTOM BASE64 WHISPER DICTATION & CHAT CONTROLLER
 # ═══════════════════════════════════════════════════════════════════
 
-def process_base64_audio(*args):
-    """Decodes custom JS Base64 audio seamlessly passed from the browser memory."""
-    b64_string = args[0] if args else ""
-    
+def process_base64_audio(b64_string):
     if not b64_string or not GROQ_KEY:
         return ""
     try:
@@ -190,7 +182,7 @@ def process_base64_audio(*args):
             response = requests.post(
                 "https://api.groq.com/openai/v1/audio/transcriptions",
                 headers={"Authorization": f"Bearer {GROQ_KEY}"},
-                files={"file": file},
+                files={"file": ("audio.webm", file, "audio/webm")},
                 data={"model": "whisper-large-v3-turbo"}
             )
             
@@ -207,7 +199,6 @@ def parse_file(file_path):
         ext = os.path.splitext(file_path)[1].lower()
         text = ""
         
-        # 📸 --- 1. HANDLE IMAGES (Photos of contracts, screenshots) ---
         if ext in [".jpg", ".jpeg", ".png"]:
             if GEMINI_KEY:
                 from PIL import Image
@@ -221,34 +212,24 @@ def parse_file(file_path):
             else:
                 return "[OCR Error: Gemini API key required to read images.]"
 
-        # 📄 --- 2. HANDLE PDFs (Digital AND Scanned) ---
         elif ext == ".pdf":
-            # First, try standard digital extraction (fastest & free)
             with open(file_path, "rb") as f:
                 reader = PyPDF2.PdfReader(f)
                 for page in reader.pages:
                     extracted = page.extract_text()
                     if extracted: text += extracted + "\n"
             
-            # 🚨 THE MAGIC TRICK: If the PDF yielded less than 50 characters, 
-            # it means it is a SCANNED image-based PDF. Trigger the Gemini OCR!
             if len(text.strip()) < 50 and GEMINI_KEY:
                 print("📄 Detected Scanned PDF. Triggering Gemini OCR Engine...")
                 client = genai.Client(api_key=GEMINI_KEY)
-                
-                # Securely upload to Gemini Vision
                 uploaded_doc = client.files.upload(file=file_path)
-                
                 response = client.models.generate_content(
                     model="gemini-1.5-flash",
                     contents=[uploaded_doc, "This is a scanned legal document. Extract all readable text exactly as written."]
                 )
                 text = response.text
-                
-                # 🔒 PRIVACY PROTOCOL: Delete the file from Google's servers immediately after reading
                 client.files.delete(name=uploaded_doc.name)
                 
-        # 📝 --- 3. HANDLE WORD DOCS ---
         elif ext in [".docx", ".doc"]:
             doc = docx.Document(file_path)
             text = "\n".join([p.text for p in doc.paragraphs if p.text])
@@ -414,8 +395,8 @@ footer { display: none !important; }
 
 #msg-input textarea { background: transparent !important; border: none !important; box-shadow: none !important; font-size: 0.98rem !important; padding: 10px !important; color: var(--text-primary) !important; max-height: 150px; }
 
-/* 🔥 HIDE GRADIO ARTIFACTS 🔥 */
-.hidden-audio-bridge { display: none !important; }
+/* 🔥 HIDE GRADIO ARTIFACTS (ABSOLUTE POSITIONING TRICK) 🔥 */
+.hidden-audio-bridge { position: absolute !important; opacity: 0 !important; width: 1px !important; height: 1px !important; pointer-events: none; z-index: -100; }
 
 /* 🔥 CLEAN CSS BACKGROUND ICONS FOR UPLOAD, MIC, AND SEND 🔥 */
 #upload-btn, #mic-btn, #send-btn { background-color: transparent !important; border: none !important; width: 38px !important; height: 38px !important; min-width: 38px !important; cursor: pointer !important; border-radius: 10px !important; transition: all 0.2s ease !important; color: transparent !important; box-shadow: none !important; }
@@ -443,13 +424,12 @@ footer { display: none !important; }
 .logout-link:hover { background: #2C384E; color: #FFF !important; }
 """
 
-# 🔥 DIRECT JS TO PYTHON AUDIO BRIDGE 🔥
+# 🔥 DIRECT JS TO PYTHON AUDIO BRIDGE (BULLETPROOF TEXTBOX METHOD) 🔥
 js_script = """
 <script>
 let customMediaRecorder;
 let audioChunks = [];
 let isRecording = false;
-window.lastRecordedAudioBase64 = "";
 
 async function toggleDictation() {
     const micBtn = document.querySelector("#mic-btn");
@@ -477,14 +457,14 @@ async function toggleDictation() {
             const reader = new FileReader();
             reader.readAsDataURL(audioBlob);
             reader.onloadend = () => {
-                window.lastRecordedAudioBase64 = reader.result;
-                
-                // 🛑 UPGRADED CLICKER: Finds the actual button inside the Gradio div
-                const hiddenWrapper = document.querySelector("#hidden-submit-btn");
-                if (hiddenWrapper) {
-                    const actualBtn = hiddenWrapper.querySelector("button") || hiddenWrapper;
-                    actualBtn.click();
+                // Secretly paste the audio data into the hidden Gradio text box
+                const hiddenInput = document.querySelector("#audio-data-store textarea") || document.querySelector("#audio-data-store input");
+                if (hiddenInput) {
+                    hiddenInput.value = reader.result;
+                    // Force Gradio to register the change
+                    hiddenInput.dispatchEvent(new Event("input", { bubbles: true }));
                 }
+                
                 if (inputArea) inputArea.placeholder = "Ask VIDURA AI or dictate query...";
             };
             stream.getTracks().forEach(track => track.stop());
@@ -542,7 +522,8 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
                 pipeline_selector = gr.Dropdown(choices=["Fast Mode", "Multi-Agent Pipeline"], value="Multi-Agent Pipeline", show_label=False, container=False, scale=2, elem_id="model-selector")
                 send_btn = gr.Button(value=" ", variant="primary", scale=1, elem_id="send-btn")
                 
-            hidden_btn = gr.Button(elem_id="hidden-submit-btn", elem_classes="hidden-audio-bridge")
+            # 🛑 The new fail-proof audio bridge component
+            audio_data_store = gr.Textbox(elem_id="audio-data-store", elem_classes="hidden-audio-bridge")
 
     def load_user_profile_and_history(request: gr.Request):
         user = request.request.session.get('user') if request else None
@@ -564,11 +545,11 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
 
     mic_btn.click(fn=None, inputs=None, outputs=None, js="() => toggleDictation()")
     
-    hidden_btn.click(
+    # 🛑 The fail-proof listener that waits for the JS to paste the audio data
+    audio_data_store.change(
         fn=process_base64_audio, 
-        inputs=[msg_input], 
-        outputs=[msg_input], 
-        js="(dummy) => { return window.lastRecordedAudioBase64 || ''; }"
+        inputs=[audio_data_store], 
+        outputs=[msg_input]
     )
 
     file_btn.upload(fn=handle_upload, inputs=[file_btn], outputs=[uploaded_file_state, file_display])
