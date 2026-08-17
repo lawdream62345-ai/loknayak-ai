@@ -475,7 +475,6 @@ async () => {
 """
 
 with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo:
-    gr.HTML(js_script)
     
     chats_store = gr.State({})
     active_title = gr.State("")
@@ -534,7 +533,8 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
             )
         return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[], value=None), "", "", []
 
-    mic_btn.click(fn=None, inputs=None, outputs=None, js="() => toggleDictation()")
+    # 🛑 Notice we injected the JS right here!
+    mic_btn.click(fn=None, inputs=None, outputs=None, js=js_script)
     
     # 🛑 The fail-proof listener that waits for the JS to paste the audio data
     audio_data_store.change(
