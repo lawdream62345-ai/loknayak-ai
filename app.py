@@ -155,7 +155,6 @@ async def auth(request: Request):
                 print(f"✅ APPROVED LOGIN: {user_email}")
             else:
                 print(f"🚨 BLOCKED UNAUTHORIZED LOGIN ATTEMPT: {user_email}")
-                # You could redirect to a custom error page here, but for now we just return them to the login screen
                 return RedirectResponse(url='/?error=Access_Denied_Not_On_Enterprise_List', status_code=303)
                 
     except Exception as e:
@@ -544,6 +543,7 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
                 send_btn = gr.Button(value=" ", variant="primary", scale=1, elem_id="send-btn")
                 
             hidden_btn = gr.Button(elem_id="hidden-submit-btn", elem_classes="hidden-audio-bridge")
+
     def load_user_profile_and_history(request: gr.Request):
         user = request.request.session.get('user') if request else None
         if user:
@@ -564,9 +564,9 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
 
     mic_btn.click(fn=None, inputs=None, outputs=None, js="() => toggleDictation()")
     
-   hidden_btn.click(
+    hidden_btn.click(
         fn=process_base64_audio, 
-        inputs=[msg_input],  # 🛑 THE FIX: We pass a dummy input to force Gradio to accept the JS data
+        inputs=[msg_input], 
         outputs=[msg_input], 
         js="(dummy) => { return window.lastRecordedAudioBase64 || ''; }"
     )
