@@ -564,11 +564,11 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
 
     mic_btn.click(fn=None, inputs=None, outputs=None, js="() => toggleDictation()")
     
-    hidden_btn.click(
+   hidden_btn.click(
         fn=process_base64_audio, 
-        inputs=[], 
+        inputs=[msg_input],  # 🛑 THE FIX: We pass a dummy input to force Gradio to accept the JS data
         outputs=[msg_input], 
-        js="() => { return window.lastRecordedAudioBase64 || ''; }"
+        js="(dummy) => { return window.lastRecordedAudioBase64 || ''; }"
     )
 
     file_btn.upload(fn=handle_upload, inputs=[file_btn], outputs=[uploaded_file_state, file_display])
