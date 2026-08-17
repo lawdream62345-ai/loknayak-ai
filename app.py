@@ -424,63 +424,54 @@ footer { display: none !important; }
 .logout-link:hover { background: #2C384E; color: #FFF !important; }
 """
 
-# 🔥 DIRECT JS TO PYTHON AUDIO BRIDGE (BULLETPROOF TEXTBOX METHOD) 🔥
+# 🔥 DIRECT INLINE JS AUDIO BRIDGE (BYPASSES GRADIO SECURITY) 🔥
 js_script = """
-<script>
-let customMediaRecorder;
-let audioChunks = [];
-let isRecording = false;
-
-async function toggleDictation() {
+async () => {
     const micBtn = document.querySelector("#mic-btn");
     const inputArea = document.querySelector("#msg-input textarea") || document.querySelector("#msg-input input");
 
-    if (isRecording) {
-        customMediaRecorder.stop();
+    if (window.isRecording) {
+        window.customMediaRecorder.stop();
         if (micBtn) micBtn.classList.remove("recording");
         if (inputArea) inputArea.placeholder = "Processing voice...";
-        isRecording = false;
+        window.isRecording = false;
         return;
     }
 
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        customMediaRecorder = new MediaRecorder(stream);
-        audioChunks = [];
+        window.customMediaRecorder = new MediaRecorder(stream);
+        window.audioChunks = [];
 
-        customMediaRecorder.ondataavailable = event => {
-            audioChunks.push(event.data);
+        window.customMediaRecorder.ondataavailable = event => {
+            window.audioChunks.push(event.data);
         };
 
-        customMediaRecorder.onstop = () => {
-            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        window.customMediaRecorder.onstop = () => {
+            const audioBlob = new Blob(window.audioChunks, { type: 'audio/webm' });
             const reader = new FileReader();
             reader.readAsDataURL(audioBlob);
             reader.onloadend = () => {
-                // Secretly paste the audio data into the hidden Gradio text box
                 const hiddenInput = document.querySelector("#audio-data-store textarea") || document.querySelector("#audio-data-store input");
                 if (hiddenInput) {
                     hiddenInput.value = reader.result;
-                    // Force Gradio to register the change
                     hiddenInput.dispatchEvent(new Event("input", { bubbles: true }));
                 }
-                
                 if (inputArea) inputArea.placeholder = "Ask VIDURA AI or dictate query...";
             };
             stream.getTracks().forEach(track => track.stop());
         };
 
-        customMediaRecorder.start();
+        window.customMediaRecorder.start();
         if (micBtn) micBtn.classList.add("recording");
         if (inputArea) inputArea.placeholder = "Listening... (Click mic again to stop)";
-        isRecording = true;
+        window.isRecording = true;
 
     } catch (err) {
         console.error("Mic access denied:", err);
-        alert("Microphone access is required for dictation. Please allow it in your browser settings.");
+        alert("Microphone access is required for dictation. Please allow it in your browser URL bar.");
     }
 }
-</script>
 """
 
 with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo:
