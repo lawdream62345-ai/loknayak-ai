@@ -110,7 +110,7 @@ ALLOWED_EMAILS = [
     "lawdream62345@gmail.com"
 ]
 ALLOWED_DOMAINS = [
-    "@smithlawfirm.com"
+    "@gmail.com"
 ]
 
 app = FastAPI()
@@ -239,13 +239,18 @@ def parse_file(file_path):
         print(f"Document Parse Error: {e}")
         return f"[Document Parse Error: OCR could not read the file.]"
 
-def call_llm(system_prompt, user_prompt, model_name="openai/gpt-oss-120b"):
+def call_llm(system_prompt, messages_array, model_name="openai/gpt-oss-120b"):
+    # 🛑 THE FIX: We now accept a full array of past messages so the AI remembers context
     if GROQ_KEY:
         try:
+            # Build the exact format Groq demands
+            formatted_messages = [{"role": "system", "content": system_prompt}]
+            formatted_messages.extend(messages_array)
+
             resp = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
-                json={"model": model_name, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}], "temperature": 0.2, "max_tokens": 1800},
+                json={"model": model_name, "messages": formatted_messages, "temperature": 0.2, "max_tokens": 1500},
                 timeout=25
             )
             data = resp.json()
@@ -257,10 +262,44 @@ def call_llm(system_prompt, user_prompt, model_name="openai/gpt-oss-120b"):
     if GEMINI_KEY:
         try:
             client = genai.Client(api_key=GEMINI_KEY)
+            # Flatten the chat history into a single string for Gemini
+            flat_prompt = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in messages_array])
             response = client.models.generate_content(
-                model="gemini-flash-latest",
-                contents=user_prompt,
-                config=types.GenerateContentConfig(system_instruction=system_prompt, temperature=0.2, max_output_tokens=2000)
+                model="gemini-1.5-flash",
+                contents=flat_prompt,
+                config=types.GenerateContentConfig(system_instruction=system_prompt, temperature=0.2, max_output_tokens=1500)
+            )
+            return response.text, "Gemini Flash"
+        except Exception: pass
+    return None, "None"
+
+def call_llm(system_prompt, messages_array, model_name="openai/gpt-oss-120b"):
+    # 🛑 MEMORY UPGRADE: We now accept an array of messages so the AI remembers context
+    if GROQ_KEY:
+        try:
+            formatted_messages = [{"role": "system", "content": system_prompt}]
+            formatted_messages.extend(messages_array)
+
+            resp = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
+                json={"model": model_name, "messages": formatted_messages, "temperature": 0.2, "max_tokens": 1500},
+                timeout=25
+            )
+            data = resp.json()
+            if "choices" in data and len(data["choices"]) > 0:
+                return data["choices"][0]["message"]["content"], f"Groq ({model_name})"
+        except Exception as e:
+            print(f"LLM Call Error ({model_name}): {e}")
+
+    if GEMINI_KEY:
+        try:
+            client = genai.Client(api_key=GEMINI_KEY)
+            flat_prompt = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in messages_array])
+            response = client.models.generate_content(
+                model="gemini-1.5-flash",
+                contents=flat_prompt,
+                config=types.GenerateContentConfig(system_instruction=system_prompt, temperature=0.2, max_output_tokens=1500)
             )
             return response.text, "Gemini Flash"
         except Exception: pass
@@ -274,12 +313,12 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
     doc_text = parse_file(file_path) if file_path else ""
     if len(doc_text) > 20000: doc_text = doc_text[:20000]
 
-    memory_context = ""
+    # 🛑 MEMORY FIX: Build structured chat history array for Groq
+    memory_messages = []
     if history:
-        memory_context = "--- PREVIOUS MATTERS & CONTEXT ---\n"
         for msg in history:
-            role_str = "COUNSEL/USER" if msg.get("role") == "user" else "VIDURA AI"
-            memory_context += f"{role_str}: {msg.get('content', '')}\n\n"
+            role = "user" if msg.get("role") == "user" else "assistant"
+            memory_messages.append({"role": role, "content": msg.get("content", "")})
 
     display_msg = user_message
     if file_path: display_msg = f"📄 **Attached Legal File:** `{os.path.basename(file_path)}`\n\n" + user_message
@@ -291,9 +330,11 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
     chats_store[active_title] = list(history)
     if user_email: save_chat_to_cloud(user_email, active_title, list(history))
 
-    input_payload = f"{memory_context}\n--- CURRENT LEGAL INQUIRY ---\n{user_message}\n"
-    if doc_text: input_payload += f"\n--- ATTACHED DOCUMENT CONTEXT ---\n{doc_text}\n"
+    current_query = f"{user_message}\n"
+    if doc_text: current_query += f"\n--- ATTACHED DOCUMENT CONTEXT ---\n{doc_text}\n"
 
+    # Add the current query to the memory pipeline
+    memory_messages.append({"role": "user", "content": current_query})
     history.append({"role": "assistant", "content": ""})
 
     if pipeline_mode == "Multi-Agent Pipeline":
@@ -302,17 +343,19 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
 
         history[-1]["content"] += "🔍 **Agent 1 (Research Counsel):** Analyzing statutory references & precedents...\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
-        research_out, _ = call_llm("You are Agent 1: Senior Legal Researcher. Extract core legal issues, relevant statutes, and precedents. Be extremely concise and limit your response to 150 words.", input_payload, "llama-3.1-8b-instant")
+        research_out, _ = call_llm("You are Agent 1: Senior Legal Researcher. Extract core legal issues, relevant statutes, and precedents. Be extremely concise and limit your response to 150 words.", memory_messages, "llama-3.1-8b-instant")
         history[-1]["content"] += "✓ Statutory research complete.\n\n"
         
         history[-1]["content"] += "🛡️ **Agent 2 (Risk & Compliance Analyst):** Evaluating procedural and financial exposure...\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
-        risk_out, _ = call_llm("You are Agent 2: Risk Analyst. Identify legal liabilities, procedural hurdles, and evidentiary weaknesses. Use bullet points and be extremely brief (max 150 words).", f"QUERY:\n{input_payload}\nRESEARCH:\n{research_out}", "llama-3.1-8b-instant")
+        risk_payload = memory_messages + [{"role": "assistant", "content": f"RESEARCH DATA:\n{research_out}"}]
+        risk_out, _ = call_llm("You are Agent 2: Risk Analyst. Identify legal liabilities, procedural hurdles, and evidentiary weaknesses. Use bullet points and be extremely brief (max 150 words).", risk_payload, "llama-3.1-8b-instant")
         history[-1]["content"] += "✓ Exposure assessment complete.\n\n"
         
         history[-1]["content"] += "🏛️ **Agent 3 (Senior Partner):** Synthesizing corporate legal draft...\n\n---\n\n"
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
-        final_out, _ = call_llm("You are Agent 3: Senior Partner at an elite law firm. Synthesize the research and risk analysis into a highly professional, strictly condensed legal opinion or draft. Provide only the essential core clauses and an executive summary. Omit standard boilerplate. Limit your entire response to under 600 words.", f"CONTEXT:\n{input_payload}\nRESEARCH:\n{research_out}\nRISKS:\n{risk_out}", "openai/gpt-oss-120b")
+        final_payload = memory_messages + [{"role": "assistant", "content": f"RESEARCH:\n{research_out}\n\nRISKS:\n{risk_out}"}]
+        final_out, _ = call_llm("You are Agent 3: Senior Partner at an elite law firm. Synthesize the research and risk analysis into a highly professional, strictly condensed legal opinion or draft. Provide only the essential core clauses and an executive summary. Omit standard boilerplate. Limit your entire response to under 600 words.", final_payload, "openai/gpt-oss-120b")
         
         for token in re.split(r'(\s+)', final_out or "Analysis failed."):
             history[-1]["content"] += token
@@ -320,7 +363,9 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
             time.sleep(0.008)
     else:
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
-        res_text, _ = call_llm("You are VIDURA AI, Senior Corporate Counsel. Structure your response professionally using Markdown headers.", input_payload, "openai/gpt-oss-120b")
+        # 🛑 FAST MODE FIX: Strict system prompt for brief, crisp answers
+        system_instructions = "You are VIDURA AI, Senior Corporate Counsel. Provide extremely concise, direct, and crisp answers. Use bullet points. Do not write unnecessary filler or boilerplate introductions. Answer the specific question immediately."
+        res_text, _ = call_llm(system_instructions, memory_messages, "openai/gpt-oss-120b")
         for token in re.split(r'(\s+)', res_text or "Analysis failed."):
             history[-1]["content"] += token
             yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
