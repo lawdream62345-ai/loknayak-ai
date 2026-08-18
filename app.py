@@ -108,7 +108,6 @@ def delete_chat_from_cloud(email, title):
     try:
         safe_doc_id = re.sub(r'[^a-zA-Z0-9 _-]', '', title).strip()[:80]
         if not safe_doc_id: return False
-        
         doc_ref = db.collection("users").document(email).collection("chats").document(safe_doc_id)
         doc_ref.delete()
         print(f"🗑️ Permanently deleted matter: {title}")
@@ -117,21 +116,8 @@ def delete_chat_from_cloud(email, title):
         print(f"❌ Delete Error: {e}")
         return False
 
-def handle_delete_chat(selected_title, chats_store, email):
-    """Handles the UI trigger to delete a chat and refresh the screen."""
-    if not selected_title:
-        return [], "", gr.update(choices=list(chats_store.keys()), value=None), chats_store
-        
-    if email:
-        delete_chat_from_cloud(email, selected_title)
-        
-    if selected_title in chats_store:
-        del chats_store[selected_title]
-        
-    return [], "", gr.update(choices=list(chats_store.keys()), value=None), chats_store
-
 # ═══════════════════════════════════════════════════════════════════
-# 2. FASTAPI & OAUTH SETUP (WITH ENTERPRISE ACCESS CONTROL)
+# 2. FASTAPI & OAUTH SETUP
 # ═══════════════════════════════════════════════════════════════════
 
 ALLOWED_EMAILS = [
@@ -143,7 +129,6 @@ ALLOWED_DOMAINS = [
 ]
 
 app = FastAPI()
-
 app.add_middleware(
     SessionMiddleware,
     secret_key="vidura-corporate-key-2026",
@@ -177,10 +162,8 @@ async def auth(request: Request):
             is_allowed = (user_email in ALLOWED_EMAILS) or any(user_email.endswith(domain) for domain in ALLOWED_DOMAINS)
             if is_allowed:
                 request.session['user'] = dict(user)
-                print(f"✅ APPROVED LOGIN: {user_email}")
             else:
-                print(f"🚨 BLOCKED UNAUTHORIZED LOGIN ATTEMPT: {user_email}")
-                return RedirectResponse(url='/?error=Access_Denied_Not_On_Enterprise_List', status_code=303)
+                return RedirectResponse(url='/?error=Access_Denied', status_code=303)
     except Exception as e:
         print("Auth Exception:", e)
     return RedirectResponse(url='/', status_code=303)
@@ -191,22 +174,17 @@ async def logout(request: Request):
     return RedirectResponse(url='/', status_code=303)
 
 # ═══════════════════════════════════════════════════════════════════
-# 3. AI ENGINE, CUSTOM BASE64 WHISPER DICTATION & CHAT CONTROLLER
+# 3. AI ENGINE & CHAT CONTROLLER
 # ═══════════════════════════════════════════════════════════════════
 
 def process_base64_audio(b64_string):
-    if not b64_string or not GROQ_KEY:
-        return ""
+    if not b64_string or not GROQ_KEY: return ""
     try:
-        if "," in b64_string:
-            b64_string = b64_string.split(",")[1]
-            
+        if "," in b64_string: b64_string = b64_string.split(",")[1]
         audio_data = base64.b64decode(b64_string)
-        
         with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_audio:
             temp_audio.write(audio_data)
             temp_audio_path = temp_audio.name
-            
         with open(temp_audio_path, "rb") as file:
             response = requests.post(
                 "https://api.groq.com/openai/v1/audio/transcriptions",
@@ -214,12 +192,10 @@ def process_base64_audio(b64_string):
                 files={"file": ("audio.webm", file, "audio/webm")},
                 data={"model": "whisper-large-v3-turbo"}
             )
-            
         os.remove(temp_audio_path)
         data = response.json()
         return data.get("text", "").strip()
     except Exception as e:
-        print(f"Base64 Transcription Error: {e}")
         return "⚠️ Voice dictation failed."
 
 def parse_file(file_path):
@@ -227,54 +203,38 @@ def parse_file(file_path):
     try:
         ext = os.path.splitext(file_path)[1].lower()
         text = ""
-        
         if ext in [".jpg", ".jpeg", ".png"]:
             if GEMINI_KEY:
-                from PIL import Image
                 client = genai.Client(api_key=GEMINI_KEY)
+                from PIL import Image
                 img = Image.open(file_path)
-                response = client.models.generate_content(
-                    model="gemini-1.5-flash",
-                    contents=["Extract all readable text from this document image exactly as it appears. If it is illegible, state that.", img]
-                )
+                response = client.models.generate_content(model="gemini-1.5-flash", contents=["Extract text", img])
                 return response.text.strip()
-            else:
-                return "[OCR Error: Gemini API key required to read images.]"
-
         elif ext == ".pdf":
             with open(file_path, "rb") as f:
                 reader = PyPDF2.PdfReader(f)
                 for page in reader.pages:
-                    extracted = page.extract_text()
-                    if extracted: text += extracted + "\n"
-            
+                    ext_text = page.extract_text()
+                    if ext_text: text += ext_text + "\n"
             if len(text.strip()) < 50 and GEMINI_KEY:
-                print("📄 Detected Scanned PDF. Triggering Gemini OCR Engine...")
                 client = genai.Client(api_key=GEMINI_KEY)
                 uploaded_doc = client.files.upload(file=file_path)
-                response = client.models.generate_content(
-                    model="gemini-1.5-flash",
-                    contents=[uploaded_doc, "This is a scanned legal document. Extract all readable text exactly as written."]
-                )
+                response = client.models.generate_content(model="gemini-1.5-flash", contents=[uploaded_doc, "Extract readable text."])
                 text = response.text
                 client.files.delete(name=uploaded_doc.name)
-                
         elif ext in [".docx", ".doc"]:
             doc = docx.Document(file_path)
             text = "\n".join([p.text for p in doc.paragraphs if p.text])
-            
         return text.strip()
     except Exception as e:
-        print(f"Document Parse Error: {e}")
-        return f"[Document Parse Error: OCR could not read the file.]"
+        return f"[Document Parse Error]"
 
-def call_llm(system_prompt, messages_array, model_name="openai/gpt-oss-120b"):
-    # 🛑 MEMORY UPGRADE: Accepts an array of messages so AI remembers context
+# 🔥 UPDATED: Using real Groq Llama Models
+def call_llm(system_prompt, messages_array, model_name="llama-3.3-70b-versatile"):
     if GROQ_KEY:
         try:
             formatted_messages = [{"role": "system", "content": system_prompt}]
             formatted_messages.extend(messages_array)
-
             resp = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
@@ -285,30 +245,17 @@ def call_llm(system_prompt, messages_array, model_name="openai/gpt-oss-120b"):
             if "choices" in data and len(data["choices"]) > 0:
                 return data["choices"][0]["message"]["content"], f"Groq ({model_name})"
         except Exception as e:
-            print(f"LLM Call Error ({model_name}): {e}")
-
-    if GEMINI_KEY:
-        try:
-            client = genai.Client(api_key=GEMINI_KEY)
-            flat_prompt = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in messages_array])
-            response = client.models.generate_content(
-                model="gemini-1.5-flash",
-                contents=flat_prompt,
-                config=types.GenerateContentConfig(system_instruction=system_prompt, temperature=0.2, max_output_tokens=1500)
-            )
-            return response.text, "Gemini Flash"
-        except Exception: pass
+            print(f"LLM Call Error: {e}")
     return None, "None"
 
 def process_chat(user_message, file_path, pipeline_mode, history, chats_store, current_title, user_email):
     if not user_message.strip() and not file_path:
-        yield "", file_path, gr.update(), history, chats_store, current_title, gr.update()
+        yield gr.update(), "", file_path, gr.update(), history, chats_store, current_title, gr.update()
         return
 
     doc_text = parse_file(file_path) if file_path else ""
     if len(doc_text) > 20000: doc_text = doc_text[:20000]
 
-    # 🛑 MEMORY FIX: Build structured chat history array
     memory_messages = []
     if history:
         for msg in history:
@@ -319,7 +266,6 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
     if file_path: display_msg = f"📄 **Attached Legal File:** `{os.path.basename(file_path)}`\n\n" + user_message
 
     history.append({"role": "user", "content": display_msg})
-    
     active_title = current_title if (current_title and current_title != "New Matter") else (user_message[:32] + "..." if len(user_message) > 32 else "Document Review")
     
     chats_store[active_title] = list(history)
@@ -333,58 +279,87 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
 
     if pipeline_mode == "Multi-Agent Pipeline":
         history[-1]["content"] = "⚖️ **VIDURA AI Multi-Agent Pipeline Active...**\n\n"
-        yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
+        yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
 
         history[-1]["content"] += "🔍 **Agent 1 (Research Counsel):** Analyzing statutory references & precedents...\n"
-        yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
-        research_out, _ = call_llm("You are Agent 1: Senior Legal Researcher. Extract core legal issues, relevant statutes, and precedents. Be extremely concise and limit your response to 150 words.", memory_messages, "llama-3.1-8b-instant")
+        yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
+        
+        # Fast Agent 1 Model
+        research_out, _ = call_llm("You are Agent 1: Senior Legal Researcher. Extract core legal issues, relevant statutes, and precedents. Be extremely concise and limit your response to 150 words.", memory_messages, "llama3-8b-8192")
         history[-1]["content"] += "✓ Statutory research complete.\n\n"
         
         history[-1]["content"] += "🛡️ **Agent 2 (Risk & Compliance Analyst):** Evaluating procedural and financial exposure...\n"
-        yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
+        yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
+        
+        # Fast Agent 2 Model
         risk_payload = memory_messages + [{"role": "assistant", "content": f"RESEARCH DATA:\n{research_out}"}]
-        risk_out, _ = call_llm("You are Agent 2: Risk Analyst. Identify legal liabilities, procedural hurdles, and evidentiary weaknesses. Use bullet points and be extremely brief (max 150 words).", risk_payload, "llama-3.1-8b-instant")
+        risk_out, _ = call_llm("You are Agent 2: Risk Analyst. Identify legal liabilities, procedural hurdles, and evidentiary weaknesses. Use bullet points and be extremely brief (max 150 words).", risk_payload, "llama3-8b-8192")
         history[-1]["content"] += "✓ Exposure assessment complete.\n\n"
         
         history[-1]["content"] += "🏛️ **Agent 3 (Senior Partner):** Synthesizing corporate legal draft...\n\n---\n\n"
-        yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
+        yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
+        
+        # Heavy Agent 3 Model
         final_payload = memory_messages + [{"role": "assistant", "content": f"RESEARCH:\n{research_out}\n\nRISKS:\n{risk_out}"}]
-        final_out, _ = call_llm("You are Agent 3: Senior Partner at an elite law firm. Synthesize the research and risk analysis into a highly professional, strictly condensed legal opinion or draft. Provide only the essential core clauses and an executive summary. Omit standard boilerplate. Limit your entire response to under 600 words.", final_payload, "openai/gpt-oss-120b")
+        final_out, _ = call_llm("You are Agent 3: Senior Partner at an elite law firm. Synthesize the research and risk analysis into a highly professional, strictly condensed legal opinion or draft. Provide only the essential core clauses and an executive summary. Omit standard boilerplate. Limit your entire response to under 600 words.", final_payload, "llama-3.3-70b-versatile")
         
         for token in re.split(r'(\s+)', final_out or "Analysis failed."):
             history[-1]["content"] += token
-            yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
+            yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
             time.sleep(0.008)
     else:
-        yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
+        yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
         system_instructions = "You are VIDURA AI, Senior Corporate Counsel. Provide extremely concise, direct, and crisp answers. Use bullet points. Do not write unnecessary filler or boilerplate introductions. Answer the specific question immediately."
-        res_text, _ = call_llm(system_instructions, memory_messages, "openai/gpt-oss-120b")
+        res_text, _ = call_llm(system_instructions, memory_messages, "llama-3.3-70b-versatile")
         for token in re.split(r'(\s+)', res_text or "Analysis failed."):
             history[-1]["content"] += token
-            yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
+            yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
             time.sleep(0.01)
 
     chats_store[active_title] = list(history)
     if user_email: save_chat_to_cloud(user_email, active_title, list(history))
-
-    yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(choices=list(chats_store.keys()), value=active_title)
+    yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update(choices=list(chats_store.keys()), value=active_title)
 
 def load_past_chat(selected_title, chats_store):
     if selected_title in chats_store: 
-        return sanitize_history(chats_store[selected_title]), selected_title
-    return [], ""
+        # Hides welcome screen, reveals chatbot
+        return gr.update(visible=False), gr.update(visible=True, value=sanitize_history(chats_store[selected_title])), selected_title
+    return gr.update(visible=False), gr.update(visible=True, value=[]), ""
 
 def start_new_chat(name):
+    """The massive centered greeting animation"""
     first_name = name.split(" ")[0] if name else "Counsel"
-    greeting = f"Hello {first_name}, what's the legal query today?"
+    greeting = f"Hello {first_name},"
+    sub_greeting = "What's the legal query today?"
     
-    history = [{"role": "assistant", "content": ""}]
-    yield history, None, gr.update(visible=False), "", gr.update(value=None)
+    # Immediately clear the screen
+    yield gr.update(visible=True, value=""), gr.update(visible=False, value=[]), None, gr.update(visible=False), "", gr.update(value=None)
     
+    html_base = "<div class='welcome-container'><div class='welcome-main'>{main}<span class='cursor'></span></div><div class='welcome-sub'>{sub}</div></div>"
+    
+    # Type out "Hello {Name},"
+    current_main = ""
     for char in greeting:
-        history[0]["content"] += char
-        yield history, None, gr.update(visible=False), "", gr.update(value=None)
-        time.sleep(0.015)
+        current_main += char
+        yield gr.update(value=html_base.format(main=current_main, sub="")), gr.update(), None, gr.update(), "", gr.update()
+        time.sleep(0.03)
+        
+    time.sleep(0.1)
+    
+    # Type out "What's the legal query today?"
+    current_sub = ""
+    for char in sub_greeting:
+        current_sub += char
+        yield gr.update(value=html_base.format(main=current_main, sub=current_sub)), gr.update(), None, gr.update(), "", gr.update()
+        time.sleep(0.02)
+
+def handle_delete_chat(selected_title, chats_store, email, name):
+    first_name = name.split(" ")[0] if name else "Counsel"
+    if email and selected_title: delete_chat_from_cloud(email, selected_title)
+    if selected_title in chats_store: del chats_store[selected_title]
+    
+    welcome_html = f"<div class='welcome-container'><div class='welcome-main'>Hello {first_name},</div><div class='welcome-sub'>What's the legal query today?</div></div>"
+    return gr.update(visible=True, value=welcome_html), gr.update(visible=False, value=[]), "", gr.update(choices=list(chats_store.keys()), value=None), chats_store
 
 def handle_upload(file):
     if file: 
@@ -398,24 +373,24 @@ def handle_upload(file):
 # ═══════════════════════════════════════════════════════════════════
 
 css_code = """
-/* Executive Dark Palette */
 :root { 
-    --bg-main: #0A0E17; 
-    --sidebar-bg: #111622; 
-    --card-bg: #161C2A; 
-    --border-color: #232D3F;
-    --text-primary: #F0F4F8; 
-    --text-muted: #8E9BAE;
-    --accent-gold: #C5A059;
+    --bg-main: #0A0E17; --sidebar-bg: #111622; --card-bg: #161C2A; --border-color: #232D3F;
+    --text-primary: #F0F4F8; --text-muted: #8E9BAE; --accent-gold: #C5A059;
 }
-
-body, .gradio-container { background-color: var(--bg-main) !important; color: var(--text-primary) !important; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important; margin: 0 !important; padding: 0 !important; }
+body, .gradio-container { background-color: var(--bg-main) !important; color: var(--text-primary) !important; font-family: 'Inter', sans-serif !important; margin: 0 !important; padding: 0 !important; }
 footer { display: none !important; }
 
 /* Strip Default Containers */
 .panel, .contain, .box, .wrap, .gr-box, .gr-panel, .form { border: none !important; box-shadow: none !important; background: transparent !important; margin: 0 !important; }
 #chatbot { border: none !important; background: transparent !important; box-shadow: none !important; }
-.chatbot-container { padding-bottom: 95px !important; }
+.chatbot-container { padding-bottom: 95px !important; position: relative; }
+
+/* 🔥 THE MASSIVE CENTERED WELCOME SCREEN CSS 🔥 */
+.welcome-container { height: calc(100vh - 150px); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.welcome-main { font-size: 3.2rem; font-weight: 800; color: #F0F4F8; letter-spacing: -0.5px; margin-bottom: 10px; }
+.welcome-sub { font-size: 1.4rem; font-weight: 500; color: #8E9BAE; }
+.cursor { display: inline-block; width: 4px; height: 3.2rem; background-color: #C5A059; margin-left: 5px; vertical-align: text-bottom; animation: blink 1s step-end infinite; }
+@keyframes blink { 50% { opacity: 0; } }
 
 /* Corporate Sidebar */
 .gr-sidebar { background-color: var(--sidebar-bg) !important; border-right: 1px solid var(--border-color) !important; padding: 18px !important; height: 100vh !important; }
@@ -431,7 +406,6 @@ footer { display: none !important; }
 #history-list label:hover { background: #1C2436 !important; color: #FFF !important; }
 #history-list input[type="radio"] { display: none !important; }
 
-/* Delete Button Styling */
 .delete-chat-btn { background: transparent !important; border: 1px solid rgba(239, 68, 68, 0.3) !important; color: #EF4444 !important; font-size: 0.8rem !important; border-radius: 8px !important; margin-top: 10px !important; transition: 0.2s; }
 .delete-chat-btn:hover { background: rgba(239, 68, 68, 0.1) !important; border-color: #EF4444 !important; }
 
@@ -440,29 +414,22 @@ footer { display: none !important; }
 .message-wrap .bot, .message-wrap .assistant { padding: 16px 0 !important; }
 .message-wrap .user { background: var(--card-bg) !important; border: 1px solid var(--border-color) !important; border-radius: 18px !important; padding: 12px 20px !important; margin-bottom: 12px; max-width: 75%; float: right; clear: both; }
 
-/* Floating Executive Input Bar */
+/* Floating Input */
 #input-container { background: var(--card-bg); border-radius: 24px; padding: 6px 14px; display: flex; align-items: center; width: 100%; max-width: 850px; margin: 0 auto !important; position: sticky; bottom: 24px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); border: 1px solid var(--border-color) !important; z-index: 100; transition: border-color 0.2s ease; }
 #input-container:focus-within { border-color: var(--accent-gold) !important; }
-
 #msg-input textarea { background: transparent !important; border: none !important; box-shadow: none !important; font-size: 0.98rem !important; padding: 10px !important; color: var(--text-primary) !important; max-height: 150px; }
 
-/* 🔥 HIDE GRADIO ARTIFACTS (ABSOLUTE POSITIONING TRICK) 🔥 */
 .hidden-audio-bridge { position: absolute !important; opacity: 0 !important; width: 1px !important; height: 1px !important; pointer-events: none; z-index: -100; }
 
-/* 🔥 CLEAN CSS BACKGROUND ICONS FOR UPLOAD, MIC, AND SEND 🔥 */
 #upload-btn, #mic-btn, #send-btn { background-color: transparent !important; border: none !important; width: 38px !important; height: 38px !important; min-width: 38px !important; cursor: pointer !important; border-radius: 10px !important; transition: all 0.2s ease !important; color: transparent !important; box-shadow: none !important; }
 #upload-btn button, #upload-btn label { color: transparent !important; }
 
 #upload-btn { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48'/%3E%3C/svg%3E") !important; background-repeat: no-repeat !important; background-position: center !important; background-size: 18px 18px !important; }
 #upload-btn:hover { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C5A059' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48'/%3E%3C/svg%3E") !important; background-color: #232D3F !important; }
-
 #mic-btn { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important; background-repeat: no-repeat !important; background-position: center !important; background-size: 18px 18px !important; }
 #mic-btn:hover { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C5A059' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important; background-color: #232D3F !important; }
-
-/* Mic Active Recording Pulse */
 #mic-btn.recording { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23EF4444' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important; background-color: rgba(239, 68, 68, 0.15) !important; animation: pulse-ring 1.5s infinite; }
 @keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
-
 #send-btn { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='22' y1='2' x2='11' y2='13'/%3E%3Cpolygon points='22 2 15 22 11 13 2 9 22 2'/%3E%3C/svg%3E") !important; background-repeat: no-repeat !important; background-position: center !important; background-size: 18px 18px !important; }
 #send-btn:hover { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C5A059' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='22' y1='2' x2='11' y2='13'/%3E%3Cpolygon points='22 2 15 22 11 13 2 9 22 2'/%3E%3C/svg%3E") !important; background-color: #232D3F !important; }
 
@@ -472,14 +439,13 @@ footer { display: none !important; }
 .login-link { display: block; text-align: center; background: linear-gradient(135deg, #C5A059, #D4AF37); color: #0A0E17 !important; padding: 10px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 0.88rem; margin-top: 10px; transition: 0.2s; }
 .login-link:hover { opacity: 0.9; }
 
-/* 🔥 PREMIUM ENTERPRISE LOADING ANIMATION 🔥 */
+/* Loading Animation */
 .wrap.default.full, .progress-text, .meta-text-center { display: none !important; opacity: 0 !important; }
 .progress-level-inner { background-color: var(--accent-gold) !important; }
 .generating#input-container, .generating #msg-input { border-color: var(--accent-gold) !important; animation: gold-pulse 1.5s infinite ease-in-out !important; }
 @keyframes gold-pulse { 0% { box-shadow: 0 0 5px rgba(197, 160, 89, 0.1); } 50% { box-shadow: 0 0 25px rgba(197, 160, 89, 0.6); } 100% { box-shadow: 0 0 5px rgba(197, 160, 89, 0.1); } }
 """
 
-# 🔥 DIRECT INLINE JS AUDIO BRIDGE (BYPASSES GRADIO SECURITY) 🔥
 js_script = """
 async () => {
     const micBtn = document.querySelector("#mic-btn");
@@ -498,9 +464,7 @@ async () => {
         window.customMediaRecorder = new MediaRecorder(stream);
         window.audioChunks = [];
 
-        window.customMediaRecorder.ondataavailable = event => {
-            window.audioChunks.push(event.data);
-        };
+        window.customMediaRecorder.ondataavailable = event => { window.audioChunks.push(event.data); };
 
         window.customMediaRecorder.onstop = () => {
             const audioBlob = new Blob(window.audioChunks, { type: 'audio/webm' });
@@ -530,7 +494,6 @@ async () => {
 """
 
 with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo:
-    
     chats_store = gr.State({})
     active_title = gr.State("")
     user_email_state = gr.State("")
@@ -542,17 +505,12 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
             gr.HTML("""
                 <div class="brand-header">
                     <span style="font-size: 1.4rem;">🏛️</span>
-                    <div>
-                        <div class="brand-title">VIDURA AI</div>
-                        <div class="brand-badge">ENTERPRISE COUNSEL</div>
-                    </div>
+                    <div><div class="brand-title">VIDURA AI</div><div class="brand-badge">ENTERPRISE COUNSEL</div></div>
                 </div>
             """)
-            
             new_chat_btn = gr.Button("➕ New Legal Matter", elem_classes="new-chat-btn")
             gr.Markdown("<br><span style='color: #8E9BAE; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px;'>RECENT MATTERS</span>")
             history_list = gr.Radio(choices=[], label="", container=False, interactive=True, elem_id="history-list")
-            
             delete_btn = gr.Button("🗑️ Delete Selected Matter", visible=False, elem_classes="delete-chat-btn")
             
             gr.Markdown("<br><span style='color: #8E9BAE; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px;'>COUNSEL ACCOUNT</span>")
@@ -561,7 +519,11 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
             logout_html = gr.HTML("", visible=False)
 
         with gr.Column(scale=9, elem_classes="chatbot-container"):
-            chatbot = gr.Chatbot(label="", height="calc(100vh - 120px)", show_label=False, avatar_images=(None, "🏛️"), elem_id="chatbot")
+            
+            # 🔥 MASSIVE WELCOME SCREEN OVERLAY 🔥
+            welcome_screen = gr.HTML(visible=True, elem_id="welcome-screen")
+            
+            chatbot = gr.Chatbot(label="", height="calc(100vh - 120px)", show_label=False, avatar_images=(None, "🏛️"), elem_id="chatbot", visible=False)
             file_display = gr.HTML("", visible=False)
             
             with gr.Row(elem_id="input-container"):
@@ -579,7 +541,6 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
             name = user.get('name', 'Counsel')
             email = user.get('email', '')
             pic = user.get('picture', '') or "https://cdn-icons-png.flaticon.com/512/3135/3135715.png"
-            
             first_name = name.split(" ")[0]
 
             cloud_chats = fetch_user_chats_from_cloud(email)
@@ -598,13 +559,14 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
             </div>
             """
             
-            initial_greeting = [{"role": "assistant", "content": f"Hello {first_name}, what's the legal query today?"}]
+            welcome_html = f"<div class='welcome-container'><div class='welcome-main'>Hello {first_name},</div><div class='welcome-sub'>What's the legal query today?</div></div>"
             
             return (
                 gr.update(visible=False), profile_card, gr.update(visible=False), 
-                cloud_chats, gr.update(choices=chat_choices, value=None), email, name, "", initial_greeting 
+                cloud_chats, gr.update(choices=chat_choices, value=None), email, name, "", 
+                gr.update(visible=True, value=welcome_html), gr.update(visible=False, value=[])
             )
-        return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[], value=None), "", "", "", []
+        return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[], value=None), "", "", "", gr.update(), gr.update()
 
     mic_btn.click(fn=None, inputs=None, outputs=None, js=js_script)
     
@@ -616,26 +578,26 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
 
     file_btn.upload(fn=handle_upload, inputs=[file_btn], outputs=[uploaded_file_state, file_display])
 
-    demo.load(fn=load_user_profile_and_history, inputs=None, outputs=[login_html, profile_html, logout_html, chats_store, history_list, user_email_state, user_name_state, active_title, chatbot])
+    demo.load(fn=load_user_profile_and_history, inputs=None, outputs=[login_html, profile_html, logout_html, chats_store, history_list, user_email_state, user_name_state, active_title, welcome_screen, chatbot])
     
     chat_inputs = [msg_input, uploaded_file_state, pipeline_selector, chatbot, chats_store, active_title, user_email_state]
-    chat_outputs = [msg_input, uploaded_file_state, file_display, chatbot, chats_store, active_title, history_list]
+    chat_outputs = [welcome_screen, msg_input, uploaded_file_state, file_display, chatbot, chats_store, active_title, history_list]
     
     msg_input.submit(fn=process_chat, inputs=chat_inputs, outputs=chat_outputs)
     send_btn.click(fn=process_chat, inputs=chat_inputs, outputs=chat_outputs)
     
-    history_list.change(fn=load_past_chat, inputs=[history_list, chats_store], outputs=[chatbot, active_title])
+    history_list.change(fn=load_past_chat, inputs=[history_list, chats_store], outputs=[welcome_screen, chatbot, active_title])
     history_list.change(fn=lambda x: gr.update(visible=True) if x else gr.update(visible=False), inputs=[history_list], outputs=[delete_btn])
     
     delete_btn.click(
         fn=handle_delete_chat,
-        inputs=[active_title, chats_store, user_email_state],
-        outputs=[chatbot, active_title, history_list, chats_store]
+        inputs=[active_title, chats_store, user_email_state, user_name_state],
+        outputs=[welcome_screen, chatbot, active_title, history_list, chats_store]
     ).then(
         fn=lambda: gr.update(visible=False), inputs=None, outputs=[delete_btn]
     )
     
-    new_chat_btn.click(fn=start_new_chat, inputs=[user_name_state], outputs=[chatbot, uploaded_file_state, file_display, active_title, history_list])
+    new_chat_btn.click(fn=start_new_chat, inputs=[user_name_state], outputs=[welcome_screen, chatbot, uploaded_file_state, file_display, active_title, history_list])
 
 app = gr.mount_gradio_app(
     app, 
