@@ -269,7 +269,7 @@ def parse_file(file_path):
         return f"[Document Parse Error: OCR could not read the file.]"
 
 def call_llm(system_prompt, messages_array, model_name="openai/gpt-oss-120b"):
-    # 🛑 MEMORY UPGRADE: We now accept an array of messages so the AI remembers context
+    # 🛑 MEMORY UPGRADE: Accepts an array of messages so AI remembers context
     if GROQ_KEY:
         try:
             formatted_messages = [{"role": "system", "content": system_prompt}]
@@ -308,7 +308,7 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
     doc_text = parse_file(file_path) if file_path else ""
     if len(doc_text) > 20000: doc_text = doc_text[:20000]
 
-    # 🛑 MEMORY FIX: Build structured chat history array for Groq
+    # 🛑 MEMORY FIX: Build structured chat history array
     memory_messages = []
     if history:
         for msg in history:
@@ -328,7 +328,6 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
     current_query = f"{user_message}\n"
     if doc_text: current_query += f"\n--- ATTACHED DOCUMENT CONTEXT ---\n{doc_text}\n"
 
-    # Add the current query to the memory pipeline
     memory_messages.append({"role": "user", "content": current_query})
     history.append({"role": "assistant", "content": ""})
 
@@ -358,7 +357,6 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
             time.sleep(0.008)
     else:
         yield "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
-        # 🛑 FAST MODE FIX: Strict system prompt for brief, crisp answers
         system_instructions = "You are VIDURA AI, Senior Corporate Counsel. Provide extremely concise, direct, and crisp answers. Use bullet points. Do not write unnecessary filler or boilerplate introductions. Answer the specific question immediately."
         res_text, _ = call_llm(system_instructions, memory_messages, "openai/gpt-oss-120b")
         for token in re.split(r'(\s+)', res_text or "Analysis failed."):
@@ -376,8 +374,17 @@ def load_past_chat(selected_title, chats_store):
         return sanitize_history(chats_store[selected_title]), selected_title
     return [], ""
 
-def start_new_chat():
-    return [], None, gr.update(visible=False), "", gr.update(value=None)
+def start_new_chat(name):
+    first_name = name.split(" ")[0] if name else "Counsel"
+    greeting = f"Hello {first_name}, what's the legal query today?"
+    
+    history = [{"role": "assistant", "content": ""}]
+    yield history, None, gr.update(visible=False), "", gr.update(value=None)
+    
+    for char in greeting:
+        history[0]["content"] += char
+        yield history, None, gr.update(visible=False), "", gr.update(value=None)
+        time.sleep(0.015)
 
 def handle_upload(file):
     if file: 
@@ -527,6 +534,7 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
     chats_store = gr.State({})
     active_title = gr.State("")
     user_email_state = gr.State("")
+    user_name_state = gr.State("")
     uploaded_file_state = gr.State(None)
 
     with gr.Row():
@@ -545,7 +553,6 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
             gr.Markdown("<br><span style='color: #8E9BAE; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px;'>RECENT MATTERS</span>")
             history_list = gr.Radio(choices=[], label="", container=False, interactive=True, elem_id="history-list")
             
-            # 🔥 NEW: Delete Button (Hidden until a chat is selected)
             delete_btn = gr.Button("🗑️ Delete Selected Matter", visible=False, elem_classes="delete-chat-btn")
             
             gr.Markdown("<br><span style='color: #8E9BAE; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px;'>COUNSEL ACCOUNT</span>")
@@ -572,11 +579,12 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
             name = user.get('name', 'Counsel')
             email = user.get('email', '')
             pic = user.get('picture', '') or "https://cdn-icons-png.flaticon.com/512/3135/3135715.png"
+            
+            first_name = name.split(" ")[0]
 
             cloud_chats = fetch_user_chats_from_cloud(email)
             chat_choices = list(cloud_chats.keys()) if cloud_chats else []
 
-            # 🔥 Sleek Combined Account Card
             profile_card = f"""
             <div style='background: #161C2A; border: 1px solid #232D3F; border-radius: 12px; padding: 12px; margin-top: 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
                 <div style='display:flex; align-items:center; gap:12px; margin-bottom: 12px;'>
@@ -590,11 +598,13 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
             </div>
             """
             
+            initial_greeting = [{"role": "assistant", "content": f"Hello {first_name}, what's the legal query today?"}]
+            
             return (
                 gr.update(visible=False), profile_card, gr.update(visible=False), 
-                cloud_chats, gr.update(choices=chat_choices, value=None), email, "", [] 
+                cloud_chats, gr.update(choices=chat_choices, value=None), email, name, "", initial_greeting 
             )
-        return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[], value=None), "", "", []
+        return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[], value=None), "", "", "", []
 
     mic_btn.click(fn=None, inputs=None, outputs=None, js=js_script)
     
@@ -606,7 +616,7 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
 
     file_btn.upload(fn=handle_upload, inputs=[file_btn], outputs=[uploaded_file_state, file_display])
 
-    demo.load(fn=load_user_profile_and_history, inputs=None, outputs=[login_html, profile_html, logout_html, chats_store, history_list, user_email_state, active_title, chatbot])
+    demo.load(fn=load_user_profile_and_history, inputs=None, outputs=[login_html, profile_html, logout_html, chats_store, history_list, user_email_state, user_name_state, active_title, chatbot])
     
     chat_inputs = [msg_input, uploaded_file_state, pipeline_selector, chatbot, chats_store, active_title, user_email_state]
     chat_outputs = [msg_input, uploaded_file_state, file_display, chatbot, chats_store, active_title, history_list]
@@ -614,11 +624,9 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
     msg_input.submit(fn=process_chat, inputs=chat_inputs, outputs=chat_outputs)
     send_btn.click(fn=process_chat, inputs=chat_inputs, outputs=chat_outputs)
     
-    # 🔥 Load chat and reveal the delete button
     history_list.change(fn=load_past_chat, inputs=[history_list, chats_store], outputs=[chatbot, active_title])
     history_list.change(fn=lambda x: gr.update(visible=True) if x else gr.update(visible=False), inputs=[history_list], outputs=[delete_btn])
     
-    # 🔥 Trigger the delete function
     delete_btn.click(
         fn=handle_delete_chat,
         inputs=[active_title, chats_store, user_email_state],
@@ -627,7 +635,7 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
         fn=lambda: gr.update(visible=False), inputs=None, outputs=[delete_btn]
     )
     
-    new_chat_btn.click(fn=start_new_chat, inputs=[], outputs=[chatbot, uploaded_file_state, file_display, active_title, history_list])
+    new_chat_btn.click(fn=start_new_chat, inputs=[user_name_state], outputs=[chatbot, uploaded_file_state, file_display, active_title, history_list])
 
 app = gr.mount_gradio_app(
     app, 
