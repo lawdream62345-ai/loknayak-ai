@@ -101,6 +101,35 @@ def fetch_user_chats_from_cloud(email):
         print(f"❌ Fetch Error: {e}")
         return {}
 
+def delete_chat_from_cloud(email, title):
+    """Permanently deletes a specific chat from the Firestore database."""
+    if not db or not email or not title:
+        return False
+    try:
+        safe_doc_id = re.sub(r'[^a-zA-Z0-9 _-]', '', title).strip()[:80]
+        if not safe_doc_id: return False
+        
+        doc_ref = db.collection("users").document(email).collection("chats").document(safe_doc_id)
+        doc_ref.delete()
+        print(f"🗑️ Permanently deleted matter: {title}")
+        return True
+    except Exception as e:
+        print(f"❌ Delete Error: {e}")
+        return False
+
+def handle_delete_chat(selected_title, chats_store, email):
+    """Handles the UI trigger to delete a chat and refresh the screen."""
+    if not selected_title:
+        return [], "", gr.update(choices=list(chats_store.keys()), value=None), chats_store
+        
+    if email:
+        delete_chat_from_cloud(email, selected_title)
+        
+    if selected_title in chats_store:
+        del chats_store[selected_title]
+        
+    return [], "", gr.update(choices=list(chats_store.keys()), value=None), chats_store
+
 # ═══════════════════════════════════════════════════════════════════
 # 2. FASTAPI & OAUTH SETUP (WITH ENTERPRISE ACCESS CONTROL)
 # ═══════════════════════════════════════════════════════════════════
@@ -110,7 +139,7 @@ ALLOWED_EMAILS = [
     "lawdream62345@gmail.com"
 ]
 ALLOWED_DOMAINS = [
-    "@gmail.com"
+    "@smithlawfirm.com"
 ]
 
 app = FastAPI()
@@ -238,40 +267,6 @@ def parse_file(file_path):
     except Exception as e:
         print(f"Document Parse Error: {e}")
         return f"[Document Parse Error: OCR could not read the file.]"
-
-def call_llm(system_prompt, messages_array, model_name="openai/gpt-oss-120b"):
-    # 🛑 THE FIX: We now accept a full array of past messages so the AI remembers context
-    if GROQ_KEY:
-        try:
-            # Build the exact format Groq demands
-            formatted_messages = [{"role": "system", "content": system_prompt}]
-            formatted_messages.extend(messages_array)
-
-            resp = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
-                json={"model": model_name, "messages": formatted_messages, "temperature": 0.2, "max_tokens": 1500},
-                timeout=25
-            )
-            data = resp.json()
-            if "choices" in data and len(data["choices"]) > 0:
-                return data["choices"][0]["message"]["content"], f"Groq ({model_name})"
-        except Exception as e:
-            print(f"LLM Call Error ({model_name}): {e}")
-
-    if GEMINI_KEY:
-        try:
-            client = genai.Client(api_key=GEMINI_KEY)
-            # Flatten the chat history into a single string for Gemini
-            flat_prompt = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in messages_array])
-            response = client.models.generate_content(
-                model="gemini-1.5-flash",
-                contents=flat_prompt,
-                config=types.GenerateContentConfig(system_instruction=system_prompt, temperature=0.2, max_output_tokens=1500)
-            )
-            return response.text, "Gemini Flash"
-        except Exception: pass
-    return None, "None"
 
 def call_llm(system_prompt, messages_array, model_name="openai/gpt-oss-120b"):
     # 🛑 MEMORY UPGRADE: We now accept an array of messages so the AI remembers context
@@ -429,6 +424,10 @@ footer { display: none !important; }
 #history-list label:hover { background: #1C2436 !important; color: #FFF !important; }
 #history-list input[type="radio"] { display: none !important; }
 
+/* Delete Button Styling */
+.delete-chat-btn { background: transparent !important; border: 1px solid rgba(239, 68, 68, 0.3) !important; color: #EF4444 !important; font-size: 0.8rem !important; border-radius: 8px !important; margin-top: 10px !important; transition: 0.2s; }
+.delete-chat-btn:hover { background: rgba(239, 68, 68, 0.1) !important; border-color: #EF4444 !important; }
+
 /* Chat Bubbles */
 .message-wrap .message { border: none !important; box-shadow: none !important; font-size: 1rem !important; color: var(--text-primary) !important; line-height: 1.6; }
 .message-wrap .bot, .message-wrap .assistant { padding: 16px 0 !important; }
@@ -465,31 +464,12 @@ footer { display: none !important; }
 #model-selector * { border: none !important; background: transparent !important; color: var(--text-muted) !important; font-size: 0.82rem !important; font-weight: 500; }
 .login-link { display: block; text-align: center; background: linear-gradient(135deg, #C5A059, #D4AF37); color: #0A0E17 !important; padding: 10px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 0.88rem; margin-top: 10px; transition: 0.2s; }
 .login-link:hover { opacity: 0.9; }
-.logout-link { display: block; text-align: center; background: #232D3F; color: var(--text-muted) !important; padding: 8px; border-radius: 8px; text-decoration: none; font-size: 0.82rem; margin-top: 10px; transition: 0.2s; }
-.logout-link:hover { background: #2C384E; color: #FFF !important; }
+
 /* 🔥 PREMIUM ENTERPRISE LOADING ANIMATION 🔥 */
-/* 1. Hide Gradio's ugly default loading box and text */
-.wrap.default.full, .progress-text, .meta-text-center { 
-    display: none !important; 
-    opacity: 0 !important; 
-}
-
-/* 2. Change the tiny progress bar at the top to corporate gold */
-.progress-level-inner { 
-    background-color: var(--accent-gold) !important; 
-}
-
-/* 3. Make the Input Bar pulse with a glowing gold aura when the AI is thinking */
-.generating#input-container, .generating #msg-input {
-    border-color: var(--accent-gold) !important;
-    animation: gold-pulse 1.5s infinite ease-in-out !important;
-}
-
-@keyframes gold-pulse { 
-    0% { box-shadow: 0 0 5px rgba(197, 160, 89, 0.1); } 
-    50% { box-shadow: 0 0 25px rgba(197, 160, 89, 0.6); } 
-    100% { box-shadow: 0 0 5px rgba(197, 160, 89, 0.1); } 
-}
+.wrap.default.full, .progress-text, .meta-text-center { display: none !important; opacity: 0 !important; }
+.progress-level-inner { background-color: var(--accent-gold) !important; }
+.generating#input-container, .generating #msg-input { border-color: var(--accent-gold) !important; animation: gold-pulse 1.5s infinite ease-in-out !important; }
+@keyframes gold-pulse { 0% { box-shadow: 0 0 5px rgba(197, 160, 89, 0.1); } 50% { box-shadow: 0 0 25px rgba(197, 160, 89, 0.6); } 100% { box-shadow: 0 0 5px rgba(197, 160, 89, 0.1); } }
 """
 
 # 🔥 DIRECT INLINE JS AUDIO BRIDGE (BYPASSES GRADIO SECURITY) 🔥
@@ -564,10 +544,14 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
             new_chat_btn = gr.Button("➕ New Legal Matter", elem_classes="new-chat-btn")
             gr.Markdown("<br><span style='color: #8E9BAE; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px;'>RECENT MATTERS</span>")
             history_list = gr.Radio(choices=[], label="", container=False, interactive=True, elem_id="history-list")
+            
+            # 🔥 NEW: Delete Button (Hidden until a chat is selected)
+            delete_btn = gr.Button("🗑️ Delete Selected Matter", visible=False, elem_classes="delete-chat-btn")
+            
             gr.Markdown("<br><span style='color: #8E9BAE; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px;'>COUNSEL ACCOUNT</span>")
             login_html = gr.HTML('<a href="/login" target="_top" class="login-link">🌐 Sign in with Google</a>')
             profile_html = gr.HTML("")
-            logout_html = gr.HTML('<a href="/logout" target="_top" class="logout-link">Sign Out</a>', visible=False)
+            logout_html = gr.HTML("", visible=False)
 
         with gr.Column(scale=9, elem_classes="chatbot-container"):
             chatbot = gr.Chatbot(label="", height="calc(100vh - 120px)", show_label=False, avatar_images=(None, "🏛️"), elem_id="chatbot")
@@ -580,7 +564,6 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
                 pipeline_selector = gr.Dropdown(choices=["Fast Mode", "Multi-Agent Pipeline"], value="Multi-Agent Pipeline", show_label=False, container=False, scale=2, elem_id="model-selector")
                 send_btn = gr.Button(value=" ", variant="primary", scale=1, elem_id="send-btn")
                 
-            # 🛑 The new fail-proof audio bridge component
             audio_data_store = gr.Textbox(elem_id="audio-data-store", elem_classes="hidden-audio-bridge")
 
     def load_user_profile_and_history(request: gr.Request):
@@ -593,7 +576,7 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
             cloud_chats = fetch_user_chats_from_cloud(email)
             chat_choices = list(cloud_chats.keys()) if cloud_chats else []
 
-            # 🔥 THE FIX: Combined Profile Info and Sign Out button into one sleek card
+            # 🔥 Sleek Combined Account Card
             profile_card = f"""
             <div style='background: #161C2A; border: 1px solid #232D3F; border-radius: 12px; padding: 12px; margin-top: 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
                 <div style='display:flex; align-items:center; gap:12px; margin-bottom: 12px;'>
@@ -603,22 +586,18 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
                         <div style='font-size:0.72rem; color:#8E9BAE; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;'>{email}</div>
                     </div>
                 </div>
-                <a href="/logout" target="_top" style='display:block; text-align:center; background:#232D3F; color:#F0F4F8; padding:8px; border-radius:8px; text-decoration:none; font-size:0.82rem; font-weight:600; border: 1px solid #2C384E;'>Sign Out</a>
+                <a href="/logout" target="_top" style='display:block; text-align:center; background:#232D3F; color:#F0F4F8; padding:8px; border-radius:8px; text-decoration:none; font-size:0.82rem; font-weight:600; border: 1px solid #2C384E; transition: 0.2s;'>Sign Out</a>
             </div>
             """
             
             return (
-                gr.update(visible=False), # Hides the main Sign In link
-                profile_card,             # Shows the new combined Account Card
-                gr.update(visible=False), # Hides the old awkward Sign Out button
+                gr.update(visible=False), profile_card, gr.update(visible=False), 
                 cloud_chats, gr.update(choices=chat_choices, value=None), email, "", [] 
             )
         return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[], value=None), "", "", []
 
-    # 🛑 Notice we injected the JS right here!
     mic_btn.click(fn=None, inputs=None, outputs=None, js=js_script)
     
-    # 🛑 The fail-proof listener that waits for the JS to paste the audio data
     audio_data_store.change(
         fn=process_base64_audio, 
         inputs=[audio_data_store], 
@@ -635,7 +614,19 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
     msg_input.submit(fn=process_chat, inputs=chat_inputs, outputs=chat_outputs)
     send_btn.click(fn=process_chat, inputs=chat_inputs, outputs=chat_outputs)
     
+    # 🔥 Load chat and reveal the delete button
     history_list.change(fn=load_past_chat, inputs=[history_list, chats_store], outputs=[chatbot, active_title])
+    history_list.change(fn=lambda x: gr.update(visible=True) if x else gr.update(visible=False), inputs=[history_list], outputs=[delete_btn])
+    
+    # 🔥 Trigger the delete function
+    delete_btn.click(
+        fn=handle_delete_chat,
+        inputs=[active_title, chats_store, user_email_state],
+        outputs=[chatbot, active_title, history_list, chats_store]
+    ).then(
+        fn=lambda: gr.update(visible=False), inputs=None, outputs=[delete_btn]
+    )
+    
     new_chat_btn.click(fn=start_new_chat, inputs=[], outputs=[chatbot, uploaded_file_state, file_display, active_title, history_list])
 
 app = gr.mount_gradio_app(
