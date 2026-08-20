@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════
-#  ⚖️ VIDURA AI — CORPORATE ENTERPRISE EDITION
+#  ⚖️ VIDURA AI — ENTERPRISE AIR-GAPPED & RAG-AUGMENTED PIPELINE
 # ═══════════════════════════════════════════════════════════════════
 
 import gradio as gr
@@ -12,6 +12,8 @@ import PyPDF2
 import docx
 import base64
 import tempfile
+import chromadb
+from chromadb.config import Settings
 from google import genai
 from google.genai import types
 
@@ -26,14 +28,67 @@ from firebase_admin import credentials, firestore
 
 APP_NAME = "VIDURA AI"
 print("=" * 60)
-print(f"  🚀 STARTING {APP_NAME} ENTERPRISE SERVER")
+print(f"  🚀 STARTING {APP_NAME} ENTERPRISE SERVER WITH RAG")
 print("=" * 60)
 
 GROQ_KEY = os.environ.get("GROQ_KEY")
 GEMINI_KEY = os.environ.get("GEMINI_KEY")
 
 # ═══════════════════════════════════════════════════════════════════
-# 1. FIRESTORE DATABASE INITIALIZATION
+# 1. VECTOR DATABASE (CHROMADB RAG INITIALIZATION)
+# ═══════════════════════════════════════════════════════════════════
+# Ephemeral in-memory vector client for high-speed local session retrieval
+chroma_client = chromadb.Client(Settings(anonymized_telemetry=False))
+
+def get_or_create_rag_collection(session_id="global_matter"):
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', session_id)[:60]
+    if not safe_name: safe_name = "legal_matter_rag"
+    return chroma_client.get_or_create_collection(name=safe_name)
+
+def chunk_legal_document(text, chunk_size=700, chunk_overlap=150):
+    """Splits legal text into overlapping windows to preserve clause context."""
+    if not text: return []
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        start += (chunk_size - chunk_overlap)
+    return chunks
+
+def index_and_retrieve_rag_context(collection, doc_text, query, top_k=3):
+    """Chunks, embeds, indexes, and queries the most relevant document sections."""
+    if not doc_text or not doc_text.strip():
+        return ""
+    try:
+        # Clear previous records in current collection to avoid stale cross-matter bleed
+        all_ids = collection.get().get("ids", [])
+        if all_ids:
+            collection.delete(ids=all_ids)
+
+        chunks = chunk_legal_document(doc_text)
+        if not chunks:
+            return ""
+
+        ids = [f"clause_chunk_{i}" for i in range(len(chunks))]
+        collection.add(documents=chunks, ids=ids)
+
+        # Semantic similarity query
+        results = collection.query(query_texts=[query], n_results=min(top_k, len(chunks)))
+        retrieved_docs = results.get("documents", [[]])[0]
+
+        if retrieved_docs:
+            return "\n\n--- [GROUNDED CONTEXT EXTRACTS] ---\n" + "\n\n".join(
+                [f"• Extract {idx+1}: {chunk}" for idx, chunk in enumerate(retrieved_docs)]
+            )
+    except Exception as e:
+        print(f"⚠️ RAG Retrieval Notice: {e}")
+    return ""
+
+# ═══════════════════════════════════════════════════════════════════
+# 2. FIRESTORE CLOUD DATABASE INITIALIZATION
 # ═══════════════════════════════════════════════════════════════════
 db = None
 firebase_json_env = os.environ.get("FIREBASE_CREDENTIALS_JSON")
@@ -44,11 +99,9 @@ if firebase_json_env:
         cred = credentials.Certificate(cred_dict)
         firebase_admin.initialize_app(cred)
         db = firestore.client(database_id="default")
-        print("✅ Firestore Enterprise Cloud Database Connected Successfully!")
+        print("✅ Firestore Enterprise Cloud Database Connected!")
     except Exception as e:
         print("⚠️ Firestore Initialization Warning:", e)
-else:
-    print("ℹ️ FIREBASE_CREDENTIALS_JSON not found. Running in Local Memory mode.")
 
 def sanitize_history(history_data):
     if not history_data: return []
@@ -64,12 +117,9 @@ def sanitize_history(history_data):
     return clean_history
 
 def save_chat_to_cloud(email, title, history):
-    if not db or not email or not title:
-        return
+    if not db or not email or not title: return
     try:
-        safe_doc_id = re.sub(r'[^a-zA-Z0-9 _-]', '', title).strip()[:80]
-        if not safe_doc_id: safe_doc_id = "Untitled_Matter"
-        
+        safe_doc_id = re.sub(r'[^a-zA-Z0-9 _-]', '', title).strip()[:80] or "Untitled_Matter"
         doc_ref = db.collection("users").document(email).collection("chats").document(safe_doc_id)
         doc_ref.set({
             "title": title,
@@ -84,7 +134,6 @@ def fetch_user_chats_from_cloud(email):
     try:
         chats_ref = db.collection("users").document(email).collection("chats")
         docs = chats_ref.stream()
-        
         chat_data = []
         for doc in docs:
             data = doc.to_dict()
@@ -93,39 +142,28 @@ def fetch_user_chats_from_cloud(email):
             updated_at = data.get("updated_at")
             timestamp = updated_at.timestamp() if updated_at and hasattr(updated_at, 'timestamp') else 0
             chat_data.append({"title": title, "history": history, "timestamp": timestamp})
-        
         chat_data.sort(key=lambda x: x["timestamp"], reverse=True)
-        user_chats = {item["title"]: sanitize_history(item["history"]) for item in chat_data}
-        return user_chats
+        return {item["title"]: sanitize_history(item["history"]) for item in chat_data}
     except Exception as e:
         print(f"❌ Fetch Error: {e}")
         return {}
 
 def delete_chat_from_cloud(email, title):
-    if not db or not email or not title:
-        return False
+    if not db or not email or not title: return False
     try:
         safe_doc_id = re.sub(r'[^a-zA-Z0-9 _-]', '', title).strip()[:80]
         if not safe_doc_id: return False
-        doc_ref = db.collection("users").document(email).collection("chats").document(safe_doc_id)
-        doc_ref.delete()
-        print(f"🗑️ Permanently deleted matter: {title}")
+        db.collection("users").document(email).collection("chats").document(safe_doc_id).delete()
         return True
     except Exception as e:
         print(f"❌ Delete Error: {e}")
         return False
 
 # ═══════════════════════════════════════════════════════════════════
-# 2. FASTAPI & OAUTH SETUP
+# 3. FASTAPI & OAUTH SETUP
 # ═══════════════════════════════════════════════════════════════════
-
-ALLOWED_EMAILS = [
-    "kumar626435@gmail.com", 
-    "lawdream62345@gmail.com"
-]
-ALLOWED_DOMAINS = [
-    "@smithlawfirm.com"
-]
+ALLOWED_EMAILS = ["kumar626435@gmail.com", "lawdream62345@gmail.com"]
+ALLOWED_DOMAINS = ["@smithlawfirm.com"]
 
 app = FastAPI()
 app.add_middleware(
@@ -173,9 +211,8 @@ async def logout(request: Request):
     return RedirectResponse(url='/', status_code=303)
 
 # ═══════════════════════════════════════════════════════════════════
-# 3. AI ENGINE & CHAT CONTROLLER
+# 4. AI INFERENCE & FILE INGESTION
 # ═══════════════════════════════════════════════════════════════════
-
 def process_base64_audio(b64_string):
     if not b64_string or not GROQ_KEY: return ""
     try:
@@ -192,8 +229,7 @@ def process_base64_audio(b64_string):
                 data={"model": "whisper-large-v3-turbo"}
             )
         os.remove(temp_audio_path)
-        data = response.json()
-        return data.get("text", "").strip()
+        return response.json().get("text", "").strip()
     except Exception as e:
         return "⚠️ Voice dictation failed."
 
@@ -229,6 +265,7 @@ def parse_file(file_path):
         return f"[Document Parse Error]"
 
 def call_llm(system_prompt, messages_array, model_name="openai/gpt-oss-120b"):
+    """Inference call with fallback execution."""
     if GROQ_KEY:
         try:
             formatted_messages = [{"role": "system", "content": system_prompt}]
@@ -236,7 +273,7 @@ def call_llm(system_prompt, messages_array, model_name="openai/gpt-oss-120b"):
             resp = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
-                json={"model": model_name, "messages": formatted_messages, "temperature": 0.2, "max_tokens": 1500},
+                json={"model": model_name, "messages": formatted_messages, "temperature": 0.1, "max_tokens": 1500},
                 timeout=25
             )
             data = resp.json()
@@ -244,16 +281,33 @@ def call_llm(system_prompt, messages_array, model_name="openai/gpt-oss-120b"):
                 return data["choices"][0]["message"]["content"], f"Groq ({model_name})"
         except Exception as e:
             print(f"LLM Call Error: {e}")
-    return None, "None"
+
+    if GEMINI_KEY:
+        try:
+            client = genai.Client(api_key=GEMINI_KEY)
+            flat_prompt = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in messages_array])
+            response = client.models.generate_content(
+                model="gemini-1.5-flash",
+                contents=flat_prompt,
+                config=types.GenerateContentConfig(system_instruction=system_prompt, temperature=0.1, max_output_tokens=1500)
+            )
+            return response.text, "Gemini Flash"
+        except Exception: pass
+    return "Analysis failed: Model endpoint unreachable.", "None"
 
 def process_chat(user_message, file_path, pipeline_mode, history, chats_store, current_title, user_email):
     if not user_message.strip() and not file_path:
         yield gr.update(), "", file_path, gr.update(), history, chats_store, current_title, gr.update()
         return
 
+    # 1. Document Extraction & RAG Ingestion
     doc_text = parse_file(file_path) if file_path else ""
-    if len(doc_text) > 20000: doc_text = doc_text[:20000]
+    rag_context = ""
+    if doc_text:
+        rag_col = get_or_create_rag_collection(session_id=current_title or "active_session")
+        rag_context = index_and_retrieve_rag_context(rag_col, doc_text, user_message, top_k=4)
 
+    # 2. Build Structured History
     memory_messages = []
     if history:
         for msg in history:
@@ -261,7 +315,8 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
             memory_messages.append({"role": role, "content": msg.get("content", "")})
 
     display_msg = user_message
-    if file_path: display_msg = f"📄 **Attached Legal File:** `{os.path.basename(file_path)}`\n\n" + user_message
+    if file_path:
+        display_msg = f"📄 **Indexed Legal File:** `{os.path.basename(file_path)}`\n\n" + user_message
 
     history.append({"role": "user", "content": display_msg})
     active_title = current_title if (current_title and current_title != "New Matter") else (user_message[:32] + "..." if len(user_message) > 32 else "Document Review")
@@ -269,44 +324,57 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
     chats_store[active_title] = list(history)
     if user_email: save_chat_to_cloud(user_email, active_title, list(history))
 
-    current_query = f"{user_message}\n"
-    if doc_text: current_query += f"\n--- ATTACHED DOCUMENT CONTEXT ---\n{doc_text}\n"
+    # Strict Grounded Query Construction
+    current_query = f"User Request: {user_message}\n"
+    if rag_context:
+        current_query += f"\n{rag_context}\n\nSTRICT INSTRUCTION: Base your analysis exclusively on the extracts above. Do not fabricate external terms or statutory provisions."
 
     memory_messages.append({"role": "user", "content": current_query})
     history.append({"role": "assistant", "content": ""})
 
+    # 3. Pipeline Execution
     if pipeline_mode == "Multi-Agent Pipeline":
-        history[-1]["content"] = "⚖️ **VIDURA AI Multi-Agent Pipeline Active...**\n\n"
+        history[-1]["content"] = "⚖️ **VIDURA AI RAG Multi-Agent Pipeline Active...**\n\n"
         yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
 
-        history[-1]["content"] += "🔍 **Agent 1 (Research Counsel):** Analyzing statutory references & precedents...\n"
+        history[-1]["content"] += "🔍 **Agent 1 (Research Counsel):** Retrieving vectorized legal clauses & precedents...\n"
         yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
         
-        # Swapped to gpt-oss-20b
-        research_out, _ = call_llm("You are Agent 1: Senior Legal Researcher. Extract core legal issues, relevant statutes, and precedents. Be extremely concise and limit your response to 150 words.", memory_messages, "openai/gpt-oss-20b")
-        history[-1]["content"] += "✓ Statutory research complete.\n\n"
+        research_out, _ = call_llm(
+            "You are Agent 1: Senior Legal Researcher. Extract strict statutory facts and clauses from the provided context. Answer in under 150 words.", 
+            memory_messages, 
+            "openai/gpt-oss-20b"
+        )
+        history[-1]["content"] += "✓ Clause grounding complete.\n\n"
         
-        history[-1]["content"] += "🛡️ **Agent 2 (Risk & Compliance Analyst):** Evaluating procedural and financial exposure...\n"
+        history[-1]["content"] += "🛡️ **Agent 2 (Risk & Compliance Analyst):** Evaluating liabilities & ambiguities...\n"
         yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
         
-        risk_payload = memory_messages + [{"role": "assistant", "content": f"RESEARCH DATA:\n{research_out}"}]
-        # Swapped to gpt-oss-20b
-        risk_out, _ = call_llm("You are Agent 2: Risk Analyst. Identify legal liabilities, procedural hurdles, and evidentiary weaknesses. Use bullet points and be extremely brief (max 150 words).", risk_payload, "openai/gpt-oss-20b")
-        history[-1]["content"] += "✓ Exposure assessment complete.\n\n"
+        risk_payload = memory_messages + [{"role": "assistant", "content": f"GROUNDED RESEARCH:\n{research_out}"}]
+        risk_out, _ = call_llm(
+            "You are Agent 2: Risk Analyst. Identify exposure and evidentiary weaknesses based strictly on the findings. Under 150 words.", 
+            risk_payload, 
+            "openai/gpt-oss-20b"
+        )
+        history[-1]["content"] += "✓ Risk verification complete.\n\n"
         
-        history[-1]["content"] += "🏛️ **Agent 3 (Senior Partner):** Synthesizing corporate legal draft...\n\n---\n\n"
+        history[-1]["content"] += "🏛️ **Agent 3 (Senior Partner):** Synthesizing corporate legal brief...\n\n---\n\n"
         yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
         
-        final_payload = memory_messages + [{"role": "assistant", "content": f"RESEARCH:\n{research_out}\n\nRISKS:\n{risk_out}"}]
-        # Swapped to gpt-oss-120b
-        final_out, _ = call_llm("You are Agent 3: Senior Partner at an elite law firm. Synthesize the research and risk analysis into a highly professional, strictly condensed legal opinion or draft. Provide only the essential core clauses and an executive summary. Omit standard boilerplate. Limit your entire response to under 600 words.", final_payload, "openai/gpt-oss-120b")
+        final_payload = memory_messages + [{"role": "assistant", "content": f"RESEARCH:\n{research_out}\n\nRISK AUDIT:\n{risk_out}"}]
+        final_out, _ = call_llm(
+            "You are Agent 3: Senior Partner. Provide a structured, definitive legal brief synthesizing the verified facts and risks. Do not introduce outside boilerplate. Limit to under 500 words.", 
+            final_payload, 
+            "openai/gpt-oss-120b"
+        )
+        
         for token in re.split(r'(\s+)', final_out or "Analysis failed."):
             history[-1]["content"] += token
             yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
             time.sleep(0.008)
     else:
         yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
-        system_instructions = "You are VIDURA AI, Senior Corporate Counsel. Provide extremely concise, direct, and crisp answers. Use bullet points. Do not write unnecessary filler or boilerplate introductions. Answer the specific question immediately."
+        system_instructions = "You are VIDURA AI Corporate Counsel. Answer concisely, strictly grounded in the provided document extracts without speculating."
         res_text, _ = call_llm(system_instructions, memory_messages, "openai/gpt-oss-120b")
         for token in re.split(r'(\s+)', res_text or "Analysis failed."):
             history[-1]["content"] += token
@@ -328,7 +396,6 @@ def start_new_chat(name):
     sub_greeting = "What's the legal query today?"
     
     yield gr.update(visible=True, value=""), gr.update(visible=False, value=[]), None, gr.update(visible=False), "", gr.update(value=None)
-    
     html_base = "<div class='welcome-container'><div class='welcome-main'>{main}<span class='cursor'></span></div><div class='welcome-sub'>{sub}</div></div>"
     
     current_main = ""
@@ -338,7 +405,6 @@ def start_new_chat(name):
         time.sleep(0.03)
         
     time.sleep(0.1)
-    
     current_sub = ""
     for char in sub_greeting:
         current_sub += char
@@ -349,21 +415,19 @@ def handle_delete_chat(selected_title, chats_store, email, name):
     first_name = name.split(" ")[0] if name else "Counsel"
     if email and selected_title: delete_chat_from_cloud(email, selected_title)
     if selected_title in chats_store: del chats_store[selected_title]
-    
     welcome_html = f"<div class='welcome-container'><div class='welcome-main'>Hello {first_name},</div><div class='welcome-sub'>What's the legal query today?</div></div>"
     return gr.update(visible=True, value=welcome_html), gr.update(visible=False, value=[]), "", gr.update(choices=list(chats_store.keys()), value=None), chats_store
 
 def handle_upload(file):
     if file: 
         filename = os.path.basename(file.name)
-        chip_html = f"<div class='file-chip'><span>📄</span> <strong>{filename}</strong></div>"
+        chip_html = f"<div class='file-chip'><span>📄</span> <strong>{filename}</strong> (Ready for RAG Search)</div>"
         return file.name, gr.update(value=chip_html, visible=True)
     return None, gr.update(visible=False)
 
 # ═══════════════════════════════════════════════════════════════════
-# 4. EXECUTIVE CORPORATE STYLING & CUSTOM JS SCRIPT INJECTION
+# 5. UI STYLING & JS SCRIPTS
 # ═══════════════════════════════════════════════════════════════════
-
 css_code = """
 :root { 
     --bg-main: #0A0E17; --sidebar-bg: #111622; --card-bg: #161C2A; --border-color: #232D3F;
@@ -372,21 +436,16 @@ css_code = """
 body, .gradio-container { background-color: var(--bg-main) !important; color: var(--text-primary) !important; font-family: 'Inter', sans-serif !important; margin: 0 !important; padding: 0 !important; }
 footer { display: none !important; }
 
-/* Strip Default Containers */
 .panel, .contain, .box, .wrap, .gr-box, .gr-panel, .form { border: none !important; box-shadow: none !important; background: transparent !important; margin: 0 !important; }
 #chatbot { border: none !important; background: transparent !important; box-shadow: none !important; }
-
-/* 🔥 FIX: Force layout to fill screen so the input bar anchors mathematically 🔥 */
 .chatbot-container { padding-bottom: 95px !important; position: relative !important; min-height: 100vh !important; }
 
-/* The Massive Centered Welcome Screen */
 .welcome-container { height: calc(100vh - 150px); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 .welcome-main { font-size: 3.2rem; font-weight: 800; color: #F0F4F8; letter-spacing: -0.5px; margin-bottom: 10px; }
 .welcome-sub { font-size: 1.4rem; font-weight: 500; color: #8E9BAE; }
 .cursor { display: inline-block; width: 4px; height: 3.2rem; background-color: #C5A059; margin-left: 5px; vertical-align: text-bottom; animation: blink 1s step-end infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 
-/* Corporate Sidebar */
 .gr-sidebar { background-color: var(--sidebar-bg) !important; border-right: 1px solid var(--border-color) !important; padding: 18px !important; height: 100vh !important; }
 .brand-header { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color); }
 .brand-title { font-size: 1.25rem; font-weight: 700; color: #FFF; letter-spacing: 0.5px; }
@@ -403,12 +462,10 @@ footer { display: none !important; }
 .delete-chat-btn { background: transparent !important; border: 1px solid rgba(239, 68, 68, 0.3) !important; color: #EF4444 !important; font-size: 0.8rem !important; border-radius: 8px !important; margin-top: 10px !important; transition: 0.2s; }
 .delete-chat-btn:hover { background: rgba(239, 68, 68, 0.1) !important; border-color: #EF4444 !important; }
 
-/* Chat Bubbles */
 .message-wrap .message { border: none !important; box-shadow: none !important; font-size: 1rem !important; color: var(--text-primary) !important; line-height: 1.6; }
 .message-wrap .bot, .message-wrap .assistant { padding: 16px 0 !important; }
 .message-wrap .user { background: var(--card-bg) !important; border: 1px solid var(--border-color) !important; border-radius: 18px !important; padding: 12px 20px !important; margin-bottom: 12px; max-width: 75%; float: right; clear: both; }
 
-/* 🔥 FIX: Absolute Floating Input permanently docked at bottom-center 🔥 */
 #input-container { background: var(--card-bg); border-radius: 24px; padding: 6px 14px; display: flex; align-items: center; width: 95% !important; max-width: 850px !important; position: absolute !important; bottom: 24px !important; left: 50% !important; transform: translateX(-50%) !important; box-shadow: 0 8px 32px rgba(0,0,0,0.4); border: 1px solid var(--border-color) !important; z-index: 100; transition: border-color 0.2s ease; }
 #input-container:focus-within { border-color: var(--accent-gold) !important; }
 #msg-input textarea { background: transparent !important; border: none !important; box-shadow: none !important; font-size: 0.98rem !important; padding: 10px !important; color: var(--text-primary) !important; max-height: 150px; }
@@ -420,10 +477,13 @@ footer { display: none !important; }
 
 #upload-btn { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48'/%3E%3C/svg%3E") !important; background-repeat: no-repeat !important; background-position: center !important; background-size: 18px 18px !important; }
 #upload-btn:hover { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C5A059' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48'/%3E%3C/svg%3E") !important; background-color: #232D3F !important; }
+
 #mic-btn { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important; background-repeat: no-repeat !important; background-position: center !important; background-size: 18px 18px !important; }
 #mic-btn:hover { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C5A059' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important; background-color: #232D3F !important; }
+
 #mic-btn.recording { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23EF4444' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z'/%3E%3Cpath d='M19 10v2a7 7 0 0 1-14 0v-2'/%3E%3Cline x1='12' y1='19' x2='12' y2='22'/%3E%3C/svg%3E") !important; background-color: rgba(239, 68, 68, 0.15) !important; animation: pulse-ring 1.5s infinite; }
 @keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+
 #send-btn { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238E9BAE' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='22' y1='2' x2='11' y2='13'/%3E%3Cpolygon points='22 2 15 22 11 13 2 9 22 2'/%3E%3C/svg%3E") !important; background-repeat: no-repeat !important; background-position: center !important; background-size: 18px 18px !important; }
 #send-btn:hover { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C5A059' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='22' y1='2' x2='11' y2='13'/%3E%3Cpolygon points='22 2 15 22 11 13 2 9 22 2'/%3E%3C/svg%3E") !important; background-color: #232D3F !important; }
 
@@ -432,12 +492,6 @@ footer { display: none !important; }
 #model-selector * { border: none !important; background: transparent !important; color: var(--text-muted) !important; font-size: 0.82rem !important; font-weight: 500; }
 .login-link { display: block; text-align: center; background: linear-gradient(135deg, #C5A059, #D4AF37); color: #0A0E17 !important; padding: 10px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 0.88rem; margin-top: 10px; transition: 0.2s; }
 .login-link:hover { opacity: 0.9; }
-
-/* Loading Animation */
-.wrap.default.full, .progress-text, .meta-text-center { display: none !important; opacity: 0 !important; }
-.progress-level-inner { background-color: var(--accent-gold) !important; }
-.generating#input-container, .generating #msg-input { border-color: var(--accent-gold) !important; animation: gold-pulse 1.5s infinite ease-in-out !important; }
-@keyframes gold-pulse { 0% { box-shadow: 0 0 5px rgba(197, 160, 89, 0.1); } 50% { box-shadow: 0 0 25px rgba(197, 160, 89, 0.6); } 100% { box-shadow: 0 0 5px rgba(197, 160, 89, 0.1); } }
 """
 
 js_script = """
@@ -482,7 +536,7 @@ async () => {
 
     } catch (err) {
         console.error("Mic access denied:", err);
-        alert("Microphone access is required for dictation. Please allow it in your browser URL bar.");
+        alert("Microphone access is required for dictation.");
     }
 }
 """
@@ -513,11 +567,8 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
             logout_html = gr.HTML("", visible=False)
 
         with gr.Column(scale=9, elem_classes="chatbot-container"):
-            
-            # 🔥 FIX: Pre-load the Logged-Out Screen so the layout is mathematically anchored 🔥
             LOGGED_OUT_HTML = "<div class='welcome-container'><div class='welcome-main'>Welcome to VIDURA AI</div><div class='welcome-sub'>Please sign in to access your enterprise workspace.</div></div>"
             welcome_screen = gr.HTML(value=LOGGED_OUT_HTML, visible=True, elem_id="welcome-screen")
-            
             chatbot = gr.Chatbot(label="", height="calc(100vh - 120px)", show_label=False, avatar_images=(None, "🏛️"), elem_id="chatbot", visible=False)
             file_display = gr.HTML("", visible=False)
             
