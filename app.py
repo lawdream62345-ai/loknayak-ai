@@ -228,7 +228,7 @@ def parse_file(file_path):
     except Exception as e:
         return f"[Document Parse Error]"
 
-def call_llm(system_prompt, messages_array, model_name="llama-3.3-70b-versatile"):
+def call_llm(system_prompt, messages_array, model_name="openai/gpt-oss-120b"):
     if GROQ_KEY:
         try:
             formatted_messages = [{"role": "system", "content": system_prompt}]
@@ -282,22 +282,24 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
         history[-1]["content"] += "🔍 **Agent 1 (Research Counsel):** Analyzing statutory references & precedents...\n"
         yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
         
-        research_out, _ = call_llm("You are Agent 1: Senior Legal Researcher. Extract core legal issues, relevant statutes, and precedents. Be extremely concise and limit your response to 150 words.", memory_messages, "llama3-8b-8192")
+        # Swapped to gpt-oss-20b
+        research_out, _ = call_llm("You are Agent 1: Senior Legal Researcher. Extract core legal issues, relevant statutes, and precedents. Be extremely concise and limit your response to 150 words.", memory_messages, "openai/gpt-oss-20b")
         history[-1]["content"] += "✓ Statutory research complete.\n\n"
         
         history[-1]["content"] += "🛡️ **Agent 2 (Risk & Compliance Analyst):** Evaluating procedural and financial exposure...\n"
         yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
         
         risk_payload = memory_messages + [{"role": "assistant", "content": f"RESEARCH DATA:\n{research_out}"}]
-        risk_out, _ = call_llm("You are Agent 2: Risk Analyst. Identify legal liabilities, procedural hurdles, and evidentiary weaknesses. Use bullet points and be extremely brief (max 150 words).", risk_payload, "llama3-8b-8192")
+        # Swapped to gpt-oss-20b
+        risk_out, _ = call_llm("You are Agent 2: Risk Analyst. Identify legal liabilities, procedural hurdles, and evidentiary weaknesses. Use bullet points and be extremely brief (max 150 words).", risk_payload, "openai/gpt-oss-20b")
         history[-1]["content"] += "✓ Exposure assessment complete.\n\n"
         
         history[-1]["content"] += "🏛️ **Agent 3 (Senior Partner):** Synthesizing corporate legal draft...\n\n---\n\n"
         yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
         
         final_payload = memory_messages + [{"role": "assistant", "content": f"RESEARCH:\n{research_out}\n\nRISKS:\n{risk_out}"}]
-        final_out, _ = call_llm("You are Agent 3: Senior Partner at an elite law firm. Synthesize the research and risk analysis into a highly professional, strictly condensed legal opinion or draft. Provide only the essential core clauses and an executive summary. Omit standard boilerplate. Limit your entire response to under 600 words.", final_payload, "llama-3.3-70b-versatile")
-        
+        # Swapped to gpt-oss-120b
+        final_out, _ = call_llm("You are Agent 3: Senior Partner at an elite law firm. Synthesize the research and risk analysis into a highly professional, strictly condensed legal opinion or draft. Provide only the essential core clauses and an executive summary. Omit standard boilerplate. Limit your entire response to under 600 words.", final_payload, "openai/gpt-oss-120b")
         for token in re.split(r'(\s+)', final_out or "Analysis failed."):
             history[-1]["content"] += token
             yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
@@ -305,7 +307,7 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
     else:
         yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
         system_instructions = "You are VIDURA AI, Senior Corporate Counsel. Provide extremely concise, direct, and crisp answers. Use bullet points. Do not write unnecessary filler or boilerplate introductions. Answer the specific question immediately."
-        res_text, _ = call_llm(system_instructions, memory_messages, "llama-3.3-70b-versatile")
+        res_text, _ = call_llm(system_instructions, memory_messages, "openai/gpt-oss-120b")
         for token in re.split(r'(\s+)', res_text or "Analysis failed."):
             history[-1]["content"] += token
             yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
