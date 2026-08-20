@@ -9,3 +9,4 @@ authlib
 itsdangerous
 httpx
 firebase-admin
+pip install chromadb
