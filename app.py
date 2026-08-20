@@ -102,7 +102,6 @@ def fetch_user_chats_from_cloud(email):
         return {}
 
 def delete_chat_from_cloud(email, title):
-    """Permanently deletes a specific chat from the Firestore database."""
     if not db or not email or not title:
         return False
     try:
@@ -229,7 +228,6 @@ def parse_file(file_path):
     except Exception as e:
         return f"[Document Parse Error]"
 
-# 🔥 UPDATED: Using real Groq Llama Models
 def call_llm(system_prompt, messages_array, model_name="llama-3.3-70b-versatile"):
     if GROQ_KEY:
         try:
@@ -284,14 +282,12 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
         history[-1]["content"] += "🔍 **Agent 1 (Research Counsel):** Analyzing statutory references & precedents...\n"
         yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
         
-        # Fast Agent 1 Model
         research_out, _ = call_llm("You are Agent 1: Senior Legal Researcher. Extract core legal issues, relevant statutes, and precedents. Be extremely concise and limit your response to 150 words.", memory_messages, "llama3-8b-8192")
         history[-1]["content"] += "✓ Statutory research complete.\n\n"
         
         history[-1]["content"] += "🛡️ **Agent 2 (Risk & Compliance Analyst):** Evaluating procedural and financial exposure...\n"
         yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
         
-        # Fast Agent 2 Model
         risk_payload = memory_messages + [{"role": "assistant", "content": f"RESEARCH DATA:\n{research_out}"}]
         risk_out, _ = call_llm("You are Agent 2: Risk Analyst. Identify legal liabilities, procedural hurdles, and evidentiary weaknesses. Use bullet points and be extremely brief (max 150 words).", risk_payload, "llama3-8b-8192")
         history[-1]["content"] += "✓ Exposure assessment complete.\n\n"
@@ -299,7 +295,6 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
         history[-1]["content"] += "🏛️ **Agent 3 (Senior Partner):** Synthesizing corporate legal draft...\n\n---\n\n"
         yield gr.update(visible=False), "", None, gr.update(visible=False), history, chats_store, active_title, gr.update()
         
-        # Heavy Agent 3 Model
         final_payload = memory_messages + [{"role": "assistant", "content": f"RESEARCH:\n{research_out}\n\nRISKS:\n{risk_out}"}]
         final_out, _ = call_llm("You are Agent 3: Senior Partner at an elite law firm. Synthesize the research and risk analysis into a highly professional, strictly condensed legal opinion or draft. Provide only the essential core clauses and an executive summary. Omit standard boilerplate. Limit your entire response to under 600 words.", final_payload, "llama-3.3-70b-versatile")
         
@@ -322,22 +317,18 @@ def process_chat(user_message, file_path, pipeline_mode, history, chats_store, c
 
 def load_past_chat(selected_title, chats_store):
     if selected_title in chats_store: 
-        # Hides welcome screen, reveals chatbot
         return gr.update(visible=False), gr.update(visible=True, value=sanitize_history(chats_store[selected_title])), selected_title
     return gr.update(visible=False), gr.update(visible=True, value=[]), ""
 
 def start_new_chat(name):
-    """The massive centered greeting animation"""
     first_name = name.split(" ")[0] if name else "Counsel"
     greeting = f"Hello {first_name},"
     sub_greeting = "What's the legal query today?"
     
-    # Immediately clear the screen
     yield gr.update(visible=True, value=""), gr.update(visible=False, value=[]), None, gr.update(visible=False), "", gr.update(value=None)
     
     html_base = "<div class='welcome-container'><div class='welcome-main'>{main}<span class='cursor'></span></div><div class='welcome-sub'>{sub}</div></div>"
     
-    # Type out "Hello {Name},"
     current_main = ""
     for char in greeting:
         current_main += char
@@ -346,7 +337,6 @@ def start_new_chat(name):
         
     time.sleep(0.1)
     
-    # Type out "What's the legal query today?"
     current_sub = ""
     for char in sub_greeting:
         current_sub += char
@@ -383,9 +373,11 @@ footer { display: none !important; }
 /* Strip Default Containers */
 .panel, .contain, .box, .wrap, .gr-box, .gr-panel, .form { border: none !important; box-shadow: none !important; background: transparent !important; margin: 0 !important; }
 #chatbot { border: none !important; background: transparent !important; box-shadow: none !important; }
-.chatbot-container { padding-bottom: 95px !important; position: relative; }
 
-/* 🔥 THE MASSIVE CENTERED WELCOME SCREEN CSS 🔥 */
+/* 🔥 FIX: Force layout to fill screen so the input bar anchors mathematically 🔥 */
+.chatbot-container { padding-bottom: 95px !important; position: relative !important; min-height: 100vh !important; }
+
+/* The Massive Centered Welcome Screen */
 .welcome-container { height: calc(100vh - 150px); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 .welcome-main { font-size: 3.2rem; font-weight: 800; color: #F0F4F8; letter-spacing: -0.5px; margin-bottom: 10px; }
 .welcome-sub { font-size: 1.4rem; font-weight: 500; color: #8E9BAE; }
@@ -414,8 +406,8 @@ footer { display: none !important; }
 .message-wrap .bot, .message-wrap .assistant { padding: 16px 0 !important; }
 .message-wrap .user { background: var(--card-bg) !important; border: 1px solid var(--border-color) !important; border-radius: 18px !important; padding: 12px 20px !important; margin-bottom: 12px; max-width: 75%; float: right; clear: both; }
 
-/* Floating Input */
-#input-container { background: var(--card-bg); border-radius: 24px; padding: 6px 14px; display: flex; align-items: center; width: 100%; max-width: 850px; margin: 0 auto !important; position: sticky; bottom: 24px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); border: 1px solid var(--border-color) !important; z-index: 100; transition: border-color 0.2s ease; }
+/* 🔥 FIX: Absolute Floating Input permanently docked at bottom-center 🔥 */
+#input-container { background: var(--card-bg); border-radius: 24px; padding: 6px 14px; display: flex; align-items: center; width: 95% !important; max-width: 850px !important; position: absolute !important; bottom: 24px !important; left: 50% !important; transform: translateX(-50%) !important; box-shadow: 0 8px 32px rgba(0,0,0,0.4); border: 1px solid var(--border-color) !important; z-index: 100; transition: border-color 0.2s ease; }
 #input-container:focus-within { border-color: var(--accent-gold) !important; }
 #msg-input textarea { background: transparent !important; border: none !important; box-shadow: none !important; font-size: 0.98rem !important; padding: 10px !important; color: var(--text-primary) !important; max-height: 150px; }
 
@@ -520,8 +512,9 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
 
         with gr.Column(scale=9, elem_classes="chatbot-container"):
             
-            # 🔥 MASSIVE WELCOME SCREEN OVERLAY 🔥
-            welcome_screen = gr.HTML(visible=True, elem_id="welcome-screen")
+            # 🔥 FIX: Pre-load the Logged-Out Screen so the layout is mathematically anchored 🔥
+            LOGGED_OUT_HTML = "<div class='welcome-container'><div class='welcome-main'>Welcome to VIDURA AI</div><div class='welcome-sub'>Please sign in to access your enterprise workspace.</div></div>"
+            welcome_screen = gr.HTML(value=LOGGED_OUT_HTML, visible=True, elem_id="welcome-screen")
             
             chatbot = gr.Chatbot(label="", height="calc(100vh - 120px)", show_label=False, avatar_images=(None, "🏛️"), elem_id="chatbot", visible=False)
             file_display = gr.HTML("", visible=False)
@@ -566,7 +559,12 @@ with gr.Blocks(title="VIDURA AI — Corporate Counsel", fill_width=True) as demo
                 cloud_chats, gr.update(choices=chat_choices, value=None), email, name, "", 
                 gr.update(visible=True, value=welcome_html), gr.update(visible=False, value=[])
             )
-        return gr.update(visible=True), "", gr.update(visible=False), {}, gr.update(choices=[], value=None), "", "", "", gr.update(), gr.update()
+            
+        return (
+            gr.update(visible=True), "", gr.update(visible=False), 
+            {}, gr.update(choices=[], value=None), "", "", "", 
+            gr.update(visible=True, value=LOGGED_OUT_HTML), gr.update(visible=False, value=[])
+        )
 
     mic_btn.click(fn=None, inputs=None, outputs=None, js=js_script)
     
